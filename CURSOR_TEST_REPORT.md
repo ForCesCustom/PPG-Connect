@@ -1,4 +1,4 @@
-# Connect cursor, Tab Catalog, interactions, Bot Mode, movable panel and Settings verification — 0.1.25
+# Connect cursor, Tab Catalog, interactions, Bot Mode, movable panel and Settings verification — 0.1.26
 
 Executed on 2026-08-19:
 

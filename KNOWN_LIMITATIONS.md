@@ -1,4 +1,4 @@
-# Known limitations — Connect BepInEx edition v0.1.25
+# Known limitations — Connect BepInEx edition v0.1.26
 
 - Every player must extract the same complete Connect ZIP into the game root.
   It already contains BepInEx 5 x64, but Connect remains a non-standard loader

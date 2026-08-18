@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.26 — Workshop author identity
+
+- Set the Workshop Companion `Author` to the active Steam Workshop username
+  **Mercury**, removing the false author-mismatch prompt when it is uploaded
+  from that account.
+- Updated both the locally installed Workshop Companion and the public
+  plug-and-play package.
+
 ## 0.1.25 — Public package link
 
 - Published the complete Connect package through the public

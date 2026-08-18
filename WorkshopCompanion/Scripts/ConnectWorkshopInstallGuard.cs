@@ -6,7 +6,7 @@ namespace ConnectWorkshopCompanion
     public sealed class ConnectWorkshopInstallGuard : MonoBehaviour
     {
         // Maintained by the release publisher with every public Connect update.
-        private const string PublishedReleaseUrl = "https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.25.zip";
+        private const string PublishedReleaseUrl = "https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.26.zip";
         private const string BepInExGuideUrl = "https://docs.bepinex.dev/master/articles/user_guide/installation/unity_mono.html?tabs=tabid-win";
         private const string RuntimeMarkerName = "Connect.RuntimeMarker";
 
