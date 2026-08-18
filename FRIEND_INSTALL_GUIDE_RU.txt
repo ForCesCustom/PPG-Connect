@@ -8,7 +8,7 @@ CONNECT — УСТАНОВКА ДЛЯ ДРУГА
 • Steam запущен под разными аккаунтами.
 
 Актуальный ZIP:
-https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.28.zip
+https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.30.zip
 
 Установка
 ---------
@@ -49,5 +49,6 @@ https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.28.zi
 
 Если в Steam Workshop установлен только Connect Workshop Companion, а полный
 Connect runtime не установлен, появится отдельная плашка с кнопками
-OPEN CONNECT ON GITHUB и COPY LINK. После запуска основной BepInEx-мод также
+OPEN CONNECT ON GITHUB и CLOSE. Ссылка также выводится в стандартном игровом
+уведомлении. После запуска основной BepInEx-мод также
 проверит нужные файлы и покажет прямую ссылку на актуальный ZIP.

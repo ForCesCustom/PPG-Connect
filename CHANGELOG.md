@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.30 — Clean Workshop publication package
+
+- Rebuilt the Workshop publication package with corrected dialog wording and
+  matching release documentation.
+
+## 0.1.29 — Workshop companion compiler fix
+
+- Replaced the Workshop Companion's unsupported `UnityEngine.GUI`/`GUIStyle`
+  overlay with People Playground's native `DialogBoxManager` dialog.
+- The missing-runtime dialog now compiles in the stock People Playground mod
+  compiler and provides an **OPEN CONNECT ON GITHUB** button.
+
 ## 0.1.28 — Complete map-sync package
 
 - Published the final plug-and-play package for the map-follow update with

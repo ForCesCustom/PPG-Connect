@@ -21,7 +21,7 @@ namespace PPGTogether.BepInEx
         internal const string PluginGuid = "local.ppgtogether.steam";
         // Keep the GUID stable so this is a seamless update for existing users.
         internal const string PluginName = "Connect";
-        internal const string PluginVersion = "0.1.28";
+        internal const string PluginVersion = "0.1.30";
         internal const string ExpectedGameVersion = "1.27.16";
         internal const string RuntimeMarkerName = "Connect.RuntimeMarker";
 

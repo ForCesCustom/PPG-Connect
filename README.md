@@ -2,7 +2,7 @@
 
 [Русская версия](#русская-версия) · [English](#english)
 
-> Current package: **v0.1.28** · protocol **v4** · People Playground **1.27.16**
+> Current package: **v0.1.30** · protocol **v4** · People Playground **1.27.16**
 
 ## English
 
@@ -15,7 +15,7 @@ addresses.
 
 Download the complete plug-and-play ZIP:
 
-**[Connect-v0.1.28.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.28.zip)**
+**[Connect-v0.1.30.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.30.zip)**
 
 1. Close People Playground.
 2. Extract the full ZIP into the folder containing `People Playground.exe`.
@@ -29,9 +29,9 @@ same People Playground build and the same Connect version.
 
 The Workshop Companion is published under **Mercury**, matching the current
 Steam Workshop account and preventing the author-mismatch upload prompt.
-If someone installs only that Companion, it shows a missing-runtime popup with
-**OPEN CONNECT ON GITHUB** and **COPY LINK** instead of pretending multiplayer
-is available.
+If someone installs only that Companion, it shows a native People Playground
+missing-runtime dialog with **OPEN CONNECT ON GITHUB** instead of pretending
+multiplayer is available. The same direct URL is printed in the game notice.
 
 ### How multiplayer works
 
@@ -99,7 +99,7 @@ Steam-клиент, не открывает порты и не передаёт 
 
 Скачай полный plug-and-play архив:
 
-**[Connect-v0.1.28.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.28.zip)**
+**[Connect-v0.1.30.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.30.zip)**
 
 1. Полностью закрой People Playground.
 2. Распакуй весь ZIP в папку, где лежит `People Playground.exe`.
@@ -113,8 +113,9 @@ Steam-клиент, не открывает порты и не передаёт 
 Workshop Companion опубликован от автора **Mercury** — это значение совпадает
 с текущим Steam Workshop-профилем и не вызывает предупреждение о другом авторе
 при загрузке.
-Если пользователь установил только Companion, он увидит плашку о недостающем
-runtime с кнопками **OPEN CONNECT ON GITHUB** и **COPY LINK**.
+Если пользователь установил только Companion, он увидит нативное окно People
+Playground о недостающем runtime с кнопкой **OPEN CONNECT ON GITHUB**. Та же
+прямая ссылка выводится в игровом уведомлении.
 
 ### Как работает мультиплеер
 
