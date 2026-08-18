@@ -76,4 +76,17 @@ namespace PPGTogether.BepInEx
             return plugin == null || !plugin.HandleClientDirectActivation();
         }
     }
+
+    // People Playground already owns map instantiation.  Observing the public
+    // completion point lets the host relay only the selected map identity and
+    // lets every client load its own installed copy through the same loader.
+    [HarmonyPatch(typeof(MapLoaderBehaviour), "Load")]
+    internal static class ConnectMapLoadPatch
+    {
+        private static void Postfix(MapLoaderBehaviour __instance)
+        {
+            PPGTogetherPlugin plugin = PPGTogetherPlugin.Instance;
+            if (plugin != null) plugin.OnLocalMapLoaded(__instance);
+        }
+    }
 }

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using BepInEx;
@@ -20,7 +21,7 @@ namespace PPGTogether.BepInEx
         internal const string PluginGuid = "local.ppgtogether.steam";
         // Keep the GUID stable so this is a seamless update for existing users.
         internal const string PluginName = "Connect";
-        internal const string PluginVersion = "0.1.26";
+        internal const string PluginVersion = "0.1.28";
         internal const string ExpectedGameVersion = "1.27.16";
         internal const string RuntimeMarkerName = "Connect.RuntimeMarker";
 
@@ -77,6 +78,10 @@ namespace PPGTogether.BepInEx
         private ushort nextPeerId = 1;
         private ushort clientPeerId;
         private bool sessionActive;
+        private bool hostStartAwaitingMap;
+        private bool clientSessionStartReceived;
+        private bool clientMapLoadPending;
+        private bool clientMapLoadIssued;
         private bool menuVisible;
         private bool menuDragging;
         private bool menuSettingsVisible;
@@ -93,6 +98,8 @@ namespace PPGTogether.BepInEx
         private float nextSnapshotAt;
         private float nextGrabAt;
         private float nextClientActivationHeartbeatAt;
+        private float clientMapLoadDeadline;
+        private float clientMapReadyAt;
         private Vector2 previousLocalCursor;
         private float previousLocalCursorAt;
         private bool hasPreviousLocalCursor;
@@ -105,6 +112,8 @@ namespace PPGTogether.BepInEx
         private uint sequence;
         private uint hostTick;
         private string status = "Waiting for Steam context supplied by People Playground.";
+        private string activeMapIdentity = string.Empty;
+        private string clientRequestedMapIdentity = string.Empty;
         private int maxPlayers = 4;
         private LobbyPrivacy privacy = LobbyPrivacy.FriendsOnly;
         private ulong clientGrabId;
@@ -206,10 +215,11 @@ namespace PPGTogether.BepInEx
             transport.Pump();
             avatars.Pump();
             ProcessReceivedPackets();
+            UpdateMapSynchronisation();
             if (!launchArgumentChecked && Time.unscaledTime > 2f) ProcessStartupLobbyArgument();
+            if (HasCursorRelay()) UpdateCursorNetwork();
             if (sessionActive)
             {
-                UpdateCursorNetwork();
                 UpdateBots();
                 UpdateInteractionInput();
                 if (IsHost && Time.unscaledTime >= nextSnapshotAt)
@@ -434,6 +444,8 @@ namespace PPGTogether.BepInEx
             string state = changed.GetData("ppgt_state");
             if (!IsHost && state == "playing" && transport.Connected)
                 SetStatus("Host session is running; awaiting welcome.");
+            else if (!IsHost && state == "loading")
+                SetStatus("Host is choosing or loading a map. You will follow automatically.");
         }
 
         private void OnLobbyMemberJoined(Lobby changed, Friend member)
@@ -477,6 +489,14 @@ namespace PPGTogether.BepInEx
         {
             SetStatus("Host left the session. No host migration is available.");
             sessionActive = false;
+            hostStartAwaitingMap = false;
+            clientSessionStartReceived = false;
+            clientMapLoadPending = false;
+            clientMapLoadIssued = false;
+            clientMapLoadDeadline = 0f;
+            clientMapReadyAt = 0f;
+            clientRequestedMapIdentity = string.Empty;
+            activeMapIdentity = string.Empty;
             clientGrabId = 0;
             clientGrabToken = 0;
             cursors.Clear();
@@ -533,8 +553,9 @@ namespace PPGTogether.BepInEx
             if (envelope.Type == WireMessage.Hello && IsHost) { HandleHello(packet, envelope); return; }
             if (envelope.Type == WireMessage.Welcome && !IsHost) { HandleWelcome(envelope); return; }
             if (envelope.Type == WireMessage.Reject && !IsHost) { HandleReject(envelope); return; }
-            if (envelope.Type == WireMessage.SessionStarted) { sessionActive = true; SetStatus("Session started."); return; }
+            if (envelope.Type == WireMessage.SessionStarted) { HandleSessionStarted(); return; }
             if (envelope.Type == WireMessage.SessionEnding) { sessionActive = false; ClearBotCursors(); SetStatus("Host ended the session."); return; }
+            if (envelope.Type == WireMessage.MapLoad && !IsHost) { HandleMapLoad(envelope); return; }
             if (envelope.Type == WireMessage.BotMode && !IsHost) { HandleBotMode(envelope); return; }
             if (envelope.Type == WireMessage.HostSettings && !IsHost) { HandleHostSettings(envelope); return; }
             if (envelope.Type == WireMessage.ActionDenied && !IsHost) { HandleActionDenied(envelope); return; }
@@ -579,7 +600,14 @@ namespace PPGTogether.BepInEx
             response.ULong((ulong)SteamClient.SteamId);
             response.Bool(sessionActive);
             SendToConnection(packet.Connection, WireMessage.Welcome, WireChannel.Control, peer.PeerId, response.ToArray(), true);
-            if (sessionActive) SendToConnection(packet.Connection, WireMessage.SessionStarted, WireChannel.Control, peer.PeerId, new byte[0], true);
+            EnsureCursor(peer.PeerId, peer.SteamId, peer.Name, GetWorldCursor(), false);
+            SendCursorToConnection(packet.Connection, 0, (ulong)SteamClient.SteamId, GetWorldCursor(), Vector2.zero, false, true);
+            if (sessionActive)
+            {
+                string mapIdentity;
+                if (TryGetCurrentMapIdentity(out mapIdentity)) SendMapLoad(packet.Connection, peer.PeerId, mapIdentity);
+                SendToConnection(packet.Connection, WireMessage.SessionStarted, WireChannel.Control, peer.PeerId, new byte[0], true);
+            }
             if (sessionActive && botsEnabled) SendBotMode(packet.Connection, peer.PeerId, true, botCount);
             SendHostSettings(packet.Connection, peer.PeerId);
             SetStatus(peer.Name + " connected through Steam Relay.");
@@ -590,8 +618,245 @@ namespace PPGTogether.BepInEx
             Reader reader = new Reader(envelope.Payload);
             ulong host; bool active;
             if (!reader.UShort(out clientPeerId) || !reader.ULong(out host) || !reader.Bool(out active) || reader.Remaining != 0) { SetStatus("Invalid host welcome."); return; }
-            sessionActive = active;
-            SetStatus(active ? "Connected; session active." : "Connected; waiting for host to start session.");
+            sessionActive = false;
+            clientSessionStartReceived = active;
+            SetStatus(active ? "Connected; waiting for the host map command." : "Connected; waiting for host to start session.");
+            SendImmediateCursor();
+        }
+
+        private void HandleSessionStarted()
+        {
+            if (IsHost)
+            {
+                sessionActive = true;
+                return;
+            }
+            clientSessionStartReceived = true;
+            TryActivateClientSession();
+        }
+
+        private void HandleMapLoad(Envelope envelope)
+        {
+            Reader reader = new Reader(envelope.Payload);
+            string identity;
+            if (!reader.String(out identity) || reader.Remaining != 0 || !IsValidMapIdentity(identity))
+            {
+                SetStatus("Host sent an invalid map identity.");
+                return;
+            }
+
+            sessionActive = false;
+            clientRequestedMapIdentity = identity;
+            clientMapLoadPending = true;
+            clientMapLoadIssued = false;
+            clientMapLoadDeadline = Time.unscaledTime + 20f;
+            clientMapReadyAt = 0f;
+            TryBeginClientMapLoad();
+        }
+
+        // Called by the narrow MapLoaderBehaviour Harmony postfix.  The host
+        // is the only peer that broadcasts a map choice; a client merely
+        // confirms that its own installed copy of the requested map has loaded.
+        internal void OnLocalMapLoaded(MapLoaderBehaviour loader)
+        {
+            string identity;
+            if (!TryGetMapIdentity(loader == null ? null : (MapLoaderBehaviour.CurrentMap ?? loader.MapLoadOverride), out identity)) return;
+
+            if (IsHost && lobby.HasValue)
+            {
+                if (hostStartAwaitingMap)
+                    BeginHostSession(identity);
+                else if (sessionActive && !string.Equals(activeMapIdentity, identity, StringComparison.Ordinal))
+                    SynchroniseHostMapChange(identity);
+                return;
+            }
+
+            if (!IsHost && clientMapLoadPending && string.Equals(clientRequestedMapIdentity, identity, StringComparison.Ordinal))
+            {
+                clientMapLoadPending = false;
+                clientMapReadyAt = Time.unscaledTime + 0.20f;
+                SetStatus("Loaded host map. Synchronising Connect session.");
+            }
+        }
+
+        private void UpdateMapSynchronisation()
+        {
+            if (IsHost && sessionActive)
+            {
+                string hostMap;
+                if (TryGetCurrentMapIdentity(out hostMap) && !string.Equals(hostMap, activeMapIdentity, StringComparison.Ordinal))
+                    SynchroniseHostMapChange(hostMap);
+                return;
+            }
+
+            if (IsHost) return;
+            if (!clientMapLoadPending)
+            {
+                TryActivateClientSession();
+                return;
+            }
+            string currentMap;
+            if (TryGetCurrentMapIdentity(out currentMap) && string.Equals(currentMap, clientRequestedMapIdentity, StringComparison.Ordinal))
+            {
+                clientMapLoadPending = false;
+                clientMapReadyAt = Time.unscaledTime + 0.20f;
+                SetStatus("Loaded host map. Synchronising Connect session.");
+            }
+            else if (Time.unscaledTime >= clientMapLoadDeadline)
+            {
+                clientMapLoadPending = false;
+                clientSessionStartReceived = false;
+                SetStatus("Map synchronisation timed out. The host map is unavailable locally.");
+            }
+            else
+            {
+                TryBeginClientMapLoad();
+            }
+
+            TryActivateClientSession();
+        }
+
+        private void TryActivateClientSession()
+        {
+            if (IsHost || sessionActive || !clientSessionStartReceived || clientMapLoadPending) return;
+            if (string.IsNullOrEmpty(clientRequestedMapIdentity))
+            {
+                SetStatus("Host session started, but no map command has arrived yet.");
+                return;
+            }
+            if (clientMapReadyAt > Time.unscaledTime) return;
+            string currentMap;
+            if (!TryGetCurrentMapIdentity(out currentMap) || !string.Equals(currentMap, clientRequestedMapIdentity, StringComparison.Ordinal)) return;
+            sessionActive = true;
+            activeMapIdentity = currentMap;
+            SendImmediateCursor();
+            SetStatus("Session active on host map: " + SafeName(currentMap));
+        }
+
+        private void TryBeginClientMapLoad()
+        {
+            if (!clientMapLoadPending || string.IsNullOrEmpty(clientRequestedMapIdentity)) return;
+            string currentMap;
+            if (TryGetCurrentMapIdentity(out currentMap) && string.Equals(currentMap, clientRequestedMapIdentity, StringComparison.Ordinal))
+            {
+                clientMapLoadPending = false;
+                clientMapReadyAt = Time.unscaledTime + 0.20f;
+                return;
+            }
+            if (clientMapLoadIssued) return;
+
+            Map map = FindInstalledMap(clientRequestedMapIdentity);
+            if (map == null)
+            {
+                SetStatus("Waiting for local map: " + SafeName(clientRequestedMapIdentity));
+                return;
+            }
+            MapLoaderBehaviour loader = FindMapLoader();
+            if (loader == null)
+            {
+                SetStatus("Waiting for People Playground map loader.");
+                return;
+            }
+
+            loader.MapLoadOverride = map;
+            clientMapLoadIssued = true;
+            loader.Load();
+            SetStatus("Loading host map: " + SafeName(clientRequestedMapIdentity));
+        }
+
+        private void BeginHostSession(string mapIdentity)
+        {
+            if (!IsHost || !lobby.HasValue || !IsValidMapIdentity(mapIdentity)) return;
+            hostStartAwaitingMap = false;
+            sessionActive = true;
+            activeMapIdentity = mapIdentity;
+            lobby.Value.SetData("ppgt_state", "playing");
+            lobby.Value.SetData("ppgt_map_id", mapIdentity);
+            BroadcastMapLoad(mapIdentity);
+            Broadcast(WireMessage.SessionStarted, WireChannel.Control, new byte[0], true);
+            BroadcastHostSettings();
+            SendImmediateCursor();
+            SetStatus("Session started. Loading " + SafeName(mapIdentity) + " for every connected player.");
+        }
+
+        private void SynchroniseHostMapChange(string mapIdentity)
+        {
+            if (!IsHost || !lobby.HasValue || !IsValidMapIdentity(mapIdentity)) return;
+            activeMapIdentity = mapIdentity;
+            lobby.Value.SetData("ppgt_state", "loading");
+            lobby.Value.SetData("ppgt_map_id", mapIdentity);
+            BroadcastMapLoad(mapIdentity);
+            Broadcast(WireMessage.SessionStarted, WireChannel.Control, new byte[0], true);
+            lobby.Value.SetData("ppgt_state", "playing");
+            SetStatus("Host map changed. Loading " + SafeName(mapIdentity) + " for every connected player.");
+        }
+
+        private void BroadcastMapLoad(string mapIdentity)
+        {
+            foreach (Peer peer in peers.Values) SendMapLoad(peer.Connection, peer.PeerId, mapIdentity);
+        }
+
+        private void SendMapLoad(Connection connection, ushort peerId, string mapIdentity)
+        {
+            if (connection == null || !IsValidMapIdentity(mapIdentity)) return;
+            Writer writer = new Writer(128);
+            writer.String(mapIdentity);
+            SendToConnection(connection, WireMessage.MapLoad, WireChannel.Control, peerId, writer.ToArray(), true);
+        }
+
+        private static MapLoaderBehaviour FindMapLoader()
+        {
+            MapLoaderBehaviour[] loaders = Resources.FindObjectsOfTypeAll<MapLoaderBehaviour>();
+            for (int i = 0; i < loaders.Length; i++)
+                if (loaders[i] != null && loaders[i].gameObject != null && loaders[i].gameObject.activeInHierarchy)
+                    return loaders[i];
+            return null;
+        }
+
+        private static Map FindInstalledMap(string identity)
+        {
+            BackgroundItemLoader background = BackgroundItemLoader.Instance;
+            if (background != null && background.BuiltInMaps != null)
+            {
+                for (int i = 0; i < background.BuiltInMaps.Length; i++)
+                    if (MapMatches(background.BuiltInMaps[i], identity)) return background.BuiltInMaps[i];
+            }
+
+            MapViewBehaviour[] views = Resources.FindObjectsOfTypeAll<MapViewBehaviour>();
+            for (int i = 0; i < views.Length; i++)
+                if (views[i] != null && MapMatches(views[i].Map, identity)) return views[i].Map;
+
+            Map[] maps = Resources.FindObjectsOfTypeAll<Map>();
+            for (int i = 0; i < maps.Length; i++)
+                if (MapMatches(maps[i], identity)) return maps[i];
+            return null;
+        }
+
+        private static bool TryGetCurrentMapIdentity(out string identity)
+        {
+            identity = string.Empty;
+            MapLoaderBehaviour[] loaders = Resources.FindObjectsOfTypeAll<MapLoaderBehaviour>();
+            if (TryGetMapIdentity(MapLoaderBehaviour.CurrentMap, out identity)) return true;
+            for (int i = 0; i < loaders.Length; i++)
+                if (loaders[i] != null && TryGetMapIdentity(loaders[i].MapLoadOverride, out identity)) return true;
+            return false;
+        }
+
+        private static bool TryGetMapIdentity(Map map, out string identity)
+        {
+            identity = map == null ? string.Empty : map.UniqueIdentity;
+            return IsValidMapIdentity(identity);
+        }
+
+        private static bool MapMatches(Map map, string identity)
+        {
+            string candidate;
+            return TryGetMapIdentity(map, out candidate) && string.Equals(candidate, identity, StringComparison.Ordinal);
+        }
+
+        private static bool IsValidMapIdentity(string identity)
+        {
+            return !string.IsNullOrWhiteSpace(identity) && Encoding.UTF8.GetByteCount(identity) <= Wire.MaxStringBytes;
         }
 
         private void HandleReject(Envelope envelope)
@@ -599,6 +864,43 @@ namespace PPGTogether.BepInEx
             Reader reader = new Reader(envelope.Payload); string reason;
             if (reader.String(out reason)) SetStatus("Connection rejected: " + reason);
             transport.Close();
+        }
+
+        private bool HasCursorRelay()
+        {
+            if (IsHost) return peers.Count > 0;
+            return lobby.HasValue && clientPeerId != 0 && transport != null && transport.Connected;
+        }
+
+        private void SendImmediateCursor()
+        {
+            nextCursorAt = 0f;
+            if (HasCursorRelay()) UpdateCursorNetwork();
+        }
+
+        private void EnsureCursor(ushort peerId, ulong steamId, string name, Vector2 position, bool isBot)
+        {
+            RemoteCursor cursor;
+            if (cursors.TryGetValue(peerId, out cursor)) return;
+            cursor = new RemoteCursor
+            {
+                PeerId = peerId,
+                SteamId = steamId,
+                Name = isBot ? name : SafeName(name),
+                Color = isBot ? BotColor(peerId - BotPeerBase) : CursorColor(peerId),
+                Target = position,
+                Render = position,
+                LastAt = Time.unscaledTime,
+                IsBot = isBot
+            };
+            cursors.Add(peerId, cursor);
+        }
+
+        private void SendCursorToConnection(Connection connection, ushort ownerPeerId, ulong steamId, Vector2 position, Vector2 velocity, bool primaryDown, bool uiBusy)
+        {
+            if (connection == null) return;
+            byte[] body = CursorPayloadCodec.Encode(steamId, position.x, position.y, velocity.x, velocity.y, primaryDown ? (byte)1 : (byte)0, uiBusy);
+            SendToConnection(connection, WireMessage.Cursor, WireChannel.Cursor, ownerPeerId, body, false);
         }
 
         private void UpdateCursorNetwork()
@@ -1606,11 +1908,17 @@ namespace PPGTogether.BepInEx
             bots.Clear();
             botSpawnedItems.Clear();
             ClearBotCursors();
-            sessionActive = true;
-            lobby.Value.SetData("ppgt_state", "playing");
-            Broadcast(WireMessage.SessionStarted, WireChannel.Control, new byte[0], true);
-            BroadcastHostSettings();
-            SetStatus("Session started. Host-spawned items are replicated.");
+            string mapIdentity;
+            if (TryGetCurrentMapIdentity(out mapIdentity))
+            {
+                BeginHostSession(mapIdentity);
+                return;
+            }
+            hostStartAwaitingMap = true;
+            sessionActive = false;
+            lobby.Value.SetData("ppgt_state", "loading");
+            lobby.Value.SetData("ppgt_map_id", string.Empty);
+            SetStatus("Choose a People Playground map. Every connected player will load it automatically.");
         }
 
         private void InviteFriends()
@@ -1631,6 +1939,8 @@ namespace PPGTogether.BepInEx
         {
             RestoreHostPhysicsSettings();
             sessionActive = false; clientPeerId = 0; clientGrabId = 0; clientGrabToken = 0;
+            hostStartAwaitingMap = false; clientSessionStartReceived = false; clientMapLoadPending = false; clientMapLoadIssued = false;
+            clientMapLoadDeadline = 0f; clientMapReadyAt = 0f; clientRequestedMapIdentity = string.Empty; activeMapIdentity = string.Empty;
             botsEnabled = false; botSpawnCount = 0; ReleaseBots(); bots.Clear(); botSpawnedItems.Clear();
             grabs.Clear(); continuousActivations.Clear(); clientHeldActivationRoots.Clear(); registry.Clear(); peers.Clear(); cursors.Clear(); avatars.Clear(); guestSpawnWindows.Clear(); guestInteractionWindows.Clear(); remoteHostSettings = new HostSettingsView();
             if (transport != null) transport.Close();
@@ -1655,6 +1965,7 @@ namespace PPGTogether.BepInEx
             value.SetData("ppgt_host_steam_id", ((ulong)SteamClient.SteamId).ToString());
             value.SetData("ppgt_session_nonce", nonce.ToString());
             value.SetData("ppgt_state", "lobby");
+            value.SetData("ppgt_map_id", string.Empty);
             value.SetData("ppgt_max_players", maxPlayers.ToString());
             value.SetData("ppgt_snapshot_hz", SnapshotRateHz().ToString());
             value.SetData("ppgt_physics_velocity_iterations", PhysicsVelocityIterations().ToString());
@@ -2092,8 +2403,8 @@ namespace PPGTogether.BepInEx
             ui.Card(new Rect(x, y, width, 61f), new Color(0.075f, 0.126f, 0.155f, 0.98f));
             GUI.Label(new Rect(x + 15f, y + 9f, 230f, 18f), "YOUR STEAM LOBBY", ui.Subtitle);
             GUI.Label(new Rect(x + 15f, y + 29f, 310f, 18f), "Players  " + current.MemberCount + " / " + current.MaxMembers + "    ·    Steam Relay", ui.Label);
-            string state = sessionActive ? "PLAYING" : "LOBBY";
-            ui.Pill(new Rect(x + width - 88f, y + 17f, 70f, 25f), sessionActive ? new Color(0.16f, 0.63f, 0.41f, 1f) : new Color(0.16f, 0.36f, 0.47f, 1f));
+            string state = sessionActive ? "PLAYING" : (hostStartAwaitingMap ? "LOADING" : "LOBBY");
+            ui.Pill(new Rect(x + width - 88f, y + 17f, 70f, 25f), sessionActive ? new Color(0.16f, 0.63f, 0.41f, 1f) : (hostStartAwaitingMap ? new Color(0.58f, 0.34f, 0.12f, 1f) : new Color(0.16f, 0.36f, 0.47f, 1f)));
             GUI.Label(new Rect(x + width - 84f, y + 22f, 62f, 15f), state, ui.ButtonSmall);
             y += 73f;
             GUI.Label(new Rect(x + 2f, y, width, 18f), "MEMBERS", ui.Subtitle);
@@ -2111,7 +2422,7 @@ namespace PPGTogether.BepInEx
             y += 4f;
             if (IsHost && !sessionActive)
             {
-                if (DrawButton("start-session", new Rect(x, y, width, 42f), "START SESSION   ▶", new Color(0.19f, 0.88f, 0.88f, 1f), new Color(0.42f, 1f, 0.94f, 1f), ui.Center)) StartSession();
+                if (DrawButton("start-session", new Rect(x, y, width, 42f), "START & SYNC MAP   ▶", new Color(0.19f, 0.88f, 0.88f, 1f), new Color(0.42f, 1f, 0.94f, 1f), ui.Center)) StartSession();
                 y += 52f;
             }
             if (sessionActive && IsHost)
@@ -2142,7 +2453,7 @@ namespace PPGTogether.BepInEx
             if (avatar != null) GUI.DrawTexture(new Rect(rect.x + 11f, rect.y + 10f, 29f, 29f), avatar, ScaleMode.StretchToFill, true);
             else GUI.Label(new Rect(rect.x + 10f, rect.y + 14f, 31f, 17f), "?", ui.Center);
             GUI.Label(new Rect(rect.x + 53f, rect.y + 8f, rect.width - 180f, 19f), Truncate(SafeName(member.Name), 27), ui.Label);
-            string detail = host ? "SESSION HOST" : (sessionActive ? "PLAYING" : "IN LOBBY");
+            string detail = host ? "SESSION HOST" : (sessionActive ? "PLAYING" : (hostStartAwaitingMap ? "WAITING FOR MAP" : "IN LOBBY"));
             GUI.Label(new Rect(rect.x + 53f, rect.y + 27f, 150f, 14f), detail, ui.Small);
             if (host)
             {
@@ -2152,7 +2463,7 @@ namespace PPGTogether.BepInEx
             else
             {
                 ui.Pill(new Rect(rect.x + rect.width - 98f, rect.y + 13f, 82f, 22f), new Color(0.09f, 0.34f, 0.31f, 1f));
-                GUI.Label(new Rect(rect.x + rect.width - 94f, rect.y + 17f, 74f, 14f), sessionActive ? "PLAYING" : "READY", ui.ButtonSmall);
+                GUI.Label(new Rect(rect.x + rect.width - 94f, rect.y + 17f, 74f, 14f), sessionActive ? "PLAYING" : (hostStartAwaitingMap ? "SYNCING" : "READY"), ui.ButtonSmall);
             }
         }
 
@@ -2221,7 +2532,7 @@ namespace PPGTogether.BepInEx
 
         private void DrawRemoteCursors()
         {
-            if (!sessionActive || cursors.Count == 0 || Camera.main == null) return;
+            if (!lobby.HasValue || cursors.Count == 0 || Camera.main == null) return;
             if (ui == null) ui = new RoundedUiTheme();
             foreach (RemoteCursor cursor in cursors.Values)
             {

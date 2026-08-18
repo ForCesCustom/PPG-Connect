@@ -1,4 +1,4 @@
-# Patches — Connect BepInEx edition v0.1.26
+# Patches — Connect BepInEx edition v0.1.28
 
 ## ClientWorldInputPatch
 
@@ -78,3 +78,19 @@ security, the game loader, OS mouse input, or anti-cheat/security components.
   the local cursor. No method name or component target crosses the network.
 - Signature/version guard: exact target method name; if not applied, Connect
   keeps its safe fallback and does not pretend to synchronize this action.
+
+## ConnectMapLoadPatch
+
+- Target type: `MapLoaderBehaviour`
+- Target method: `Load`
+- Game tested: People Playground `1.27.16`, Unity `2020.3.1f1`
+- Patch type: Harmony postfix
+- Reason: observe the game's own completed map-load path, so a Connect host can
+  relay the selected installed map identity and guests can follow it through
+  their own standard map loader.
+- Behaviour: only the active lobby host broadcasts a bounded `Map.UniqueIdentity`.
+  A non-host resolves that identity only from its local map catalogue and calls
+  the game loader; it never receives assets, files or paths. A client remains
+  blocked from network world actions until its requested map has loaded.
+- Signature/version guard: exact `MapLoaderBehaviour.Load` target. If it cannot
+  be patched, no automatic map-follow claim is made and the failure is logged.

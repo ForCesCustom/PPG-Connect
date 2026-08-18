@@ -1,4 +1,4 @@
-# Connect cursor, Tab Catalog, interactions, Bot Mode, movable panel and Settings verification — 0.1.26
+# Connect cursor, Tab Catalog, interactions, Bot Mode, movable panel and Settings verification — 0.1.28
 
 Executed on 2026-08-19:
 
@@ -30,6 +30,9 @@ Executed on 2026-08-19:
 - Release package validation: passed. The ZIP has the expected game-root
   layout, includes the built plugin and icon, and excludes game/Steam DLLs,
   debug symbols and development output.
+- `MapLoad` protocol v4 envelope/string round-trip: passed. The implementation
+  was compiled against the local public `MapLoaderBehaviour.Load()` and
+  `MapLoaderBehaviour.CurrentMap` signatures.
 
 The live route is host-authoritative: clients submit their own world-space
 cursor; the host validates the Steam transport identity and relays it with the

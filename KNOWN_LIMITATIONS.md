@@ -1,4 +1,4 @@
-# Known limitations — Connect BepInEx edition v0.1.26
+# Known limitations — Connect BepInEx edition v0.1.28
 
 - Every player must extract the same complete Connect ZIP into the game root.
   It already contains BepInEx 5 x64, but Connect remains a non-standard loader
@@ -7,12 +7,16 @@
   local runtime checks prove plugin load, Steam lobby creation and Steam's invite
   chooser, but cannot prove the remote peer path without a second account/device.
 - Join-in-progress does not reconstruct pre-existing map objects. Start with an
-  empty map, create the lobby, press START SESSION, then use the normal Tab
-  catalog for the objects that are expected to replicate.
+  empty map, create the lobby, press **START & SYNC MAP** and, if needed, choose
+  the host map; then use the normal Tab catalog for objects expected to
+  replicate.
 - Replication is limited to post-start vanilla spawnables with a root Rigidbody2D
   and their root pose/velocity. Existing objects, ragdoll limbs, dismemberment,
   joints, wires, custom components, explosions, projectile/damage state,
-  freeze, rotate, undo, map load/change and save/load are not supported. Direct
+  freeze, rotate, undo and save/load are not supported. Map selection and map
+  changes now follow the host by installed `Map.UniqueIdentity`, but the map
+  itself must exist locally and its pre-existing objects still are not rebuilt.
+  Direct
   vanilla Use (including host-side continuous Use for automatic weapons) plus
   context Activate/Delete are supported only for a registered Connect root;
   arbitrary context buttons from the game or Workshop are not.
@@ -35,7 +39,7 @@
   This is not a claim of complete anti-cheat coverage.
 - The Host Settings panel covers Connect's currently implemented spawn/grab/use/
   delete/bot rules, solver iterations and snapshot budget. It does not imply
-  support for arbitrary custom actions, wires, map changes or a full Steam-server
+  support for arbitrary custom actions, wires or a full Steam-server
   browser.
 - If the Harmony target changes in a future game build, client vanilla world tools
   remain enabled rather than applying a broad input patch. Do not use this build

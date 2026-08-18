@@ -8,7 +8,7 @@ CONNECT — УСТАНОВКА ДЛЯ ДРУГА
 • Steam запущен под разными аккаунтами.
 
 Актуальный ZIP:
-https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.26.zip
+https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.28.zip
 
 Установка
 ---------
@@ -42,10 +42,12 @@ https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.26.zi
 2. Хост нажимает карточку «+ Invite a friend» и приглашает через Steam Overlay.
 3. Друг принимает приглашение в Steam. Connect сам получает Steam Lobby ID,
    подключается к хосту через Steam Relay и выполняет handshake.
-4. Хост нажимает START SESSION.
+4. Хост нажимает **START & SYNC MAP**. Если хост ещё в главном меню, он затем
+   выбирает карту People Playground — все подключённые игроки автоматически
+   загрузят эту же установленную у них карту. Если карта уже открыта, переход
+   отправляется сразу.
 
-Если в Steam Workshop установлен Connect Workshop Companion, а внешний
-Connect runtime не запустился, People Playground покажет штатное уведомление
-с вероятной причиной и ссылкой на инструкцию. После запуска основной
-BepInEx-мод точно проверит файлы. Основная плашка содержит OPEN CONNECT и
-COPY LINK с прямой ссылкой на актуальный ZIP.
+Если в Steam Workshop установлен только Connect Workshop Companion, а полный
+Connect runtime не установлен, появится отдельная плашка с кнопками
+OPEN CONNECT ON GITHUB и COPY LINK. После запуска основной BepInEx-мод также
+проверит нужные файлы и покажет прямую ссылку на актуальный ZIP.

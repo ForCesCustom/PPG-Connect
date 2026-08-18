@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.28 — Complete map-sync package
+
+- Published the final plug-and-play package for the map-follow update with
+  updated host/friend instructions, missing-runtime popup documentation and the
+  v4 protocol metadata.
+
+## 0.1.27 — Map follow and Workshop recovery
+
+- Added protocol v4 `MapLoad`: after the host starts a session, all connected
+  guests automatically load the host's locally installed People Playground map
+  through the game's own `MapLoaderBehaviour`. Clients remain synchronising
+  rather than falsely entering a session from the title menu.
+- Remote cursor presence now begins immediately after the Steam Relay handshake
+  and is no longer gated behind the old local-only session flag.
+- Reworked the Workshop Companion missing-runtime notice into a visible popup
+  with **OPEN CONNECT ON GITHUB** and **COPY LINK** actions.
+
 ## 0.1.26 — Workshop author identity
 
 - Set the Workshop Companion `Author` to the active Steam Workshop username

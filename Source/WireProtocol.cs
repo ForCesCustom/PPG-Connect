@@ -33,7 +33,11 @@ namespace PPGTogether.BepInEx
         ActionDenied = 20,
         // Client requests a bounded, host-validated vanilla interaction on one
         // registered object: Activate or Delete.
-        InteractionRequest = 21
+        InteractionRequest = 21,
+        // Reliable host-to-client map command.  The identity comes from the
+        // host's local MapLoaderBehaviour and is resolved only against the
+        // client's already-installed map catalogue.
+        MapLoad = 22
     }
 
     internal enum WireChannel : byte
@@ -47,7 +51,7 @@ namespace PPGTogether.BepInEx
     internal static class Wire
     {
         internal const uint Magic = 0x54475050;
-        internal const ushort ProtocolVersion = 3;
+        internal const ushort ProtocolVersion = 4;
         internal const int HeaderSize = 30;
         internal const int MaxPacketBytes = 49152;
         internal const int MaxStringBytes = 256;

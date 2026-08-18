@@ -1,4 +1,4 @@
-# Connect relay protocol v3
+# Connect relay protocol v4
 
 The BepInEx plugin sends this binary protocol through the game-supplied
 Facepunch `SteamNetworkingSockets` relay connection. It never serializes CLR
@@ -32,6 +32,12 @@ lobby identity, permissions, rate limit, object existence and cursor proximity
 before calling the equivalent vanilla action. A client never supplies a method
 name or executes its own authoritative physics action.
 
+`MapLoad` (`22`) is a reliable host-to-client Control message containing one
+bounded People Playground `Map.UniqueIdentity`. The host obtains it from the
+game's loaded `MapLoaderBehaviour`; the client resolves it only against maps
+already installed locally and invokes the same `MapLoaderBehaviour.Load()`
+path. No map files, Workshop assets or paths cross the network.
+
 ## Envelope
 
 All fields are little-endian. The fixed header is 30 bytes.
@@ -39,7 +45,7 @@ All fields are little-endian. The fixed header is 30 bytes.
 | Offset | Bytes | Field |
 |---:|---:|---|
 | 0 | 4 | Magic `0x54475050` (`PPGT`, retained for wire compatibility) |
-| 4 | 2 | Protocol version (`3`) |
+| 4 | 2 | Protocol version (`4`) |
 | 6 | 1 | Message type |
 | 7 | 1 | Logical channel |
 | 8 | 8 | Session nonce |
@@ -55,8 +61,8 @@ finite floats before a handler can apply the message. A stale nonce is dropped.
 
 ## Channels
 
-- `Control` (reliable): Hello, Welcome, Reject, session start/end, BotMode and
-  HostSettings.
+- `Control` (reliable): Hello, Welcome, Reject, `MapLoad`, session start/end,
+  BotMode and HostSettings.
 - `World` (reliable unless an update): grab lease, spawn/despawn and bounded
   interaction requests.
 - `Snapshot` (unreliable): root Rigidbody2D state.
@@ -80,6 +86,9 @@ finite floats before a handler can apply the message. A stale nonce is dropped.
   a lease expires if the client disconnects or stops renewing it. It never
   invokes a method name supplied by a client.
 - `Snapshot`: registered root network ID plus root Rigidbody2D pose/velocity.
+- `MapLoad`: host-selected installed-map identity. The client displays a clear
+  local-map/timeout status if that identity cannot be resolved; it never enters
+  the active gameplay state while still at the title screen.
 - `HostSettings`: host-only, fixed 12-byte payload: velocity iterations (1–16),
   position iterations (1–16), snapshot rate (10–30 Hz), object cap (25–1000),
   guest spawn cap (1–60/min), spawn/grab/activate/delete/bot permission flags

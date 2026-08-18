@@ -2,7 +2,7 @@
 
 [Русская версия](#русская-версия) · [English](#english)
 
-> Current package: **v0.1.26** · protocol **v3** · People Playground **1.27.16**
+> Current package: **v0.1.28** · protocol **v4** · People Playground **1.27.16**
 
 ## English
 
@@ -15,7 +15,7 @@ addresses.
 
 Download the complete plug-and-play ZIP:
 
-**[Connect-v0.1.26.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.26.zip)**
+**[Connect-v0.1.28.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.28.zip)**
 
 1. Close People Playground.
 2. Extract the full ZIP into the folder containing `People Playground.exe`.
@@ -29,13 +29,17 @@ same People Playground build and the same Connect version.
 
 The Workshop Companion is published under **Mercury**, matching the current
 Steam Workshop account and preventing the author-mismatch upload prompt.
+If someone installs only that Companion, it shows a missing-runtime popup with
+**OPEN CONNECT ON GITHUB** and **COPY LINK** instead of pretending multiplayer
+is available.
 
 ### How multiplayer works
 
 - One player creates a Steam lobby and is the host.
 - The host invites friends through the official Steam Overlay `[ + ]` cards.
 - Clients join via the Steam lobby callback or the safe `+connect_lobby`
-  launch argument.
+  launch argument. Once the host starts and selects a map, clients load that
+  same locally installed map automatically.
 - Steam relay transport carries the handshake, cursor updates and approved game
   actions.
 - Every player has a separate world-space cursor, local camera, zoom, Tab
@@ -58,14 +62,15 @@ Steam Workshop account and preventing the author-mismatch upload prompt.
 ### Current scope and limitations
 
 Implemented: Steam lobby/invites, Steam relay handshake, independent coloured
-cursors, host-authoritative grab leases, post-session vanilla catalog spawns,
+cursors visible from the Steam Relay handshake onward, host-authoritative grab
+leases, host-led installed-map follow, post-session vanilla catalog spawns,
 despawns, root Rigidbody2D snapshots, bounded Use/Delete actions, automatic
 weapon continuous Use, bot cursors, and host/player settings.
 
 Not yet implemented as full replication: pre-existing world transfer,
 ragdoll limb biology and dismemberment topology, joints, wires, arbitrary
-Workshop context actions, projectile/hit/explosion state, map changes, undo,
-host migration and a public lobby browser. See
+Workshop context actions, projectile/hit/explosion state, complete pre-existing
+world reconstruction, undo, host migration and a public lobby browser. See
 [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) before playing.
 
 No player can send files, DLLs, shell commands, paths, arbitrary type data or
@@ -94,7 +99,7 @@ Steam-клиент, не открывает порты и не передаёт 
 
 Скачай полный plug-and-play архив:
 
-**[Connect-v0.1.26.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.26.zip)**
+**[Connect-v0.1.28.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.28.zip)**
 
 1. Полностью закрой People Playground.
 2. Распакуй весь ZIP в папку, где лежит `People Playground.exe`.
@@ -108,12 +113,16 @@ Steam-клиент, не открывает порты и не передаёт 
 Workshop Companion опубликован от автора **Mercury** — это значение совпадает
 с текущим Steam Workshop-профилем и не вызывает предупреждение о другом авторе
 при загрузке.
+Если пользователь установил только Companion, он увидит плашку о недостающем
+runtime с кнопками **OPEN CONNECT ON GITHUB** и **COPY LINK**.
 
 ### Как работает мультиплеер
 
 - Один игрок создаёт Steam Lobby и становится хостом.
 - Хост приглашает друзей через официальные карточки `[ + ]` Steam Overlay.
 - Клиенты входят через Steam invite или безопасный параметр `+connect_lobby`.
+  После старта хоста и выбора карты они автоматически загружают ту же локально
+  установленную карту.
 - Steam Relay передаёт handshake, курсоры и подтверждённые игровые действия.
 - У каждого игрока независимые мировой курсор, камера, zoom, Tab-каталог,
   выделение и ПКМ-меню.
@@ -134,13 +143,14 @@ Workshop Companion опубликован от автора **Mercury** — эт
 ### Что реально есть и чего пока нет
 
 Уже есть: Steam Lobby/инвайты, Steam Relay handshake, независимые цветные
-курсоры, leases для grab, vanilla-спавн после старта сессии, despawn, root
+курсоры, видимые уже после Steam Relay handshake, leases для grab, автопереход
+на выбранную хостом установленную карту, vanilla-спавн после старта сессии, despawn, root
 Rigidbody2D snapshots, ограниченные Use/Delete, continuous Use для
 автоматического оружия, боты и настройки хоста/игрока.
 
 Пока нет полной синхронизации: существующего до старта мира, конечностей и
 дисмембера, joints/wires, произвольных Workshop-действий, состояния пуль/
-попаданий/взрывов, смены карты, undo, host migration и публичного списка лобби.
+попаданий/взрывов, undo, host migration и публичного списка лобби.
 Перед игрой прочитай [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md).
 
 Connect не принимает по сети файлы, DLL, команды, пути, произвольные типы или
