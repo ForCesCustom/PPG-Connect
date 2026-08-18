@@ -1,0 +1,21 @@
+# Local build products and IDE state
+Dev/bin/
+Dev/obj/
+.vs/
+*.pdb
+
+# Temporary release staging and verification directories
+ReleaseStaging*/
+ReleaseVerify*/
+FailedBuilds/
+
+# The BepInEx runtime is distributed only inside the versioned ZIP release.
+# Do not mirror a game installation in this source repository.
+BepInEx/
+doorstop_config.ini
+winhttp.dll
+
+# Logs and user-local configuration
+*.log
+LogOutput.log
+config/

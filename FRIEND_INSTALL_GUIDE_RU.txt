@@ -1,0 +1,51 @@
+CONNECT — УСТАНОВКА ДЛЯ ДРУГА
+============================
+
+У вас обоих должны быть:
+
+• People Playground 1.27.16 из Steam;
+• один и тот же ZIP-релиз Connect;
+• Steam запущен под разными аккаунтами.
+
+Актуальный ZIP:
+https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.25.zip
+
+Установка
+---------
+
+1. Полностью закрой People Playground.
+2. Распакуй весь ZIP Connect прямо в папку игры — туда же, где находится
+   People Playground.exe. В релиз уже включён BepInEx 5 Unity.Mono-win-x64,
+   поэтому отдельно скачивать loader не нужно.
+3. Разреши Windows объединить папку BepInEx. Нельзя удалять чужие плагины или
+   заменять People Playground.exe.
+4. В результате должны существовать оба файла:
+   BepInEx\plugins\Connect\Connect.BepInEx.dll
+   BepInEx\plugins\Connect\connect-icon.png
+5. Запусти People Playground только через Steam и нажми F8.
+
+Проверка
+--------
+
+В заголовке должна быть красно-розовая иконка Connect. Если F8 ничего не
+открывает, открой BepInEx\LogOutput.log и найди строку:
+
+  [Connect][Core] BepInEx plugin loaded.
+
+Не клади в папку Connect steam_api64.dll, Steamworks.NET, Facepunch.Steamworks
+или steam_appid.txt — игру уже обслуживает её собственный Steam-контекст.
+
+Как подключиться
+---------------
+
+1. Хост открывает F8 → CREATE STEAM LOBBY.
+2. Хост нажимает карточку «+ Invite a friend» и приглашает через Steam Overlay.
+3. Друг принимает приглашение в Steam. Connect сам получает Steam Lobby ID,
+   подключается к хосту через Steam Relay и выполняет handshake.
+4. Хост нажимает START SESSION.
+
+Если в Steam Workshop установлен Connect Workshop Companion, а внешний
+Connect runtime не запустился, People Playground покажет штатное уведомление
+с вероятной причиной и ссылкой на инструкцию. После запуска основной
+BepInEx-мод точно проверит файлы. Основная плашка содержит OPEN CONNECT и
+COPY LINK с прямой ссылкой на актуальный ZIP.

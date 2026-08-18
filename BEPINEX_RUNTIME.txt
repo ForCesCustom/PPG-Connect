@@ -1,0 +1,19 @@
+This release bundles the tested BepInEx 5.4.23.5 Unity Mono x64 runtime so the
+complete Connect archive can be extracted directly into the People Playground
+game root.
+
+Included game-root files:
+
+  BepInEx\core\...
+  BepInEx\plugins\Connect\Connect.BepInEx.dll
+  BepInEx\plugins\Connect\connect-icon.png
+  winhttp.dll
+  doorstop_config.ini
+  .doorstop_version
+
+Do not add Steam DLLs, steam_appid.txt, game DLLs or executable files to this
+package. People Playground owns the already-initialised Steam client.
+
+If BepInEx is already installed, merge the BepInEx folder and retain unrelated
+plugins/configuration. The host and every friend must use the same Connect
+release version.

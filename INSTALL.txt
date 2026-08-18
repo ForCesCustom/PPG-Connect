@@ -1,0 +1,18 @@
+INSTALL CONNECT (BepInEx edition)
+=================================
+
+1. Close People Playground, then extract the complete Connect ZIP into the
+   folder containing People Playground.exe. The package includes BepInEx 5
+   Unity.Mono-win-x64, winhttp.dll, doorstop_config.ini and the Connect plugin.
+
+2. Allow Windows to merge BepInEx if you already use other BepInEx plugins;
+   do not delete unrelated files.
+
+3. Start People Playground from Steam and press F8.
+
+Do not copy Facepunch.Steamworks, steam_api64.dll, Steamworks.NET, or
+steam_appid.txt into the plugin directory. The game already supplies and owns
+the Steam context.
+
+All players need the same complete Connect ZIP/version. The included BepInEx
+runtime removes the separate loader download step.

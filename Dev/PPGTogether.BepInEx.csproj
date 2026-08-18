@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{E6BFA6A6-A2A4-4DCE-A636-8D819B088C37}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <RootNamespace>PPGTogether.BepInEx</RootNamespace>
+    <AssemblyName>Connect.BepInEx</AssemblyName>
+    <TargetFrameworkVersion>v4.0</TargetFrameworkVersion>
+    <LangVersion>5</LangVersion>
+    <PlatformTarget>x64</PlatformTarget>
+    <FrameworkPathOverride Condition="'$(FrameworkPathOverride)' == ''">$(MSBuildFrameworkToolsPath)</FrameworkPathOverride>
+    <GameRoot Condition="'$(GameRoot)' == ''">C:\Program Files (x86)\Steam\steamapps\common\People Playground</GameRoot>
+    <GameManaged>$(GameRoot)\People Playground_Data\Managed</GameManaged>
+    <BepInExRoot Condition="'$(BepInExRoot)' == ''">..\..\PPGTogether\Dev\BepInEx_5.4.23.5\BepInEx\core</BepInExRoot>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="mscorlib" />
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="BepInEx"><HintPath>$(BepInExRoot)\BepInEx.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>$(BepInExRoot)\0Harmony.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="Assembly-CSharp"><HintPath>$(GameManaged)\Assembly-CSharp.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="Facepunch.Steamworks.Win64"><HintPath>$(GameManaged)\Facepunch.Steamworks.Win64.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="UnityEngine"><HintPath>$(GameManaged)\UnityEngine.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(GameManaged)\UnityEngine.CoreModule.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="UnityEngine.Physics2DModule"><HintPath>$(GameManaged)\UnityEngine.Physics2DModule.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="UnityEngine.InputLegacyModule"><HintPath>$(GameManaged)\UnityEngine.InputLegacyModule.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="UnityEngine.IMGUIModule"><HintPath>$(GameManaged)\UnityEngine.IMGUIModule.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="UnityEngine.ImageConversionModule"><HintPath>$(GameManaged)\UnityEngine.ImageConversionModule.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="UnityEngine.TextRenderingModule"><HintPath>$(GameManaged)\UnityEngine.TextRenderingModule.dll</HintPath><Private>False</Private></Reference>
+  </ItemGroup>
+  <ItemGroup><Compile Include="..\Source\*.cs"><Link>Source\%(Filename)%(Extension)</Link></Compile></ItemGroup>
+  <Target Name="ValidateReferences" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(GameManaged)\Facepunch.Steamworks.Win64.dll')" Text="People Playground Facepunch Steamworks assembly was not found." />
+    <Error Condition="!Exists('$(BepInExRoot)\BepInEx.dll')" Text="BepInEx 5 core was not found. Install the matching Unity.Mono-win-x64 build first." />
+  </Target>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>
