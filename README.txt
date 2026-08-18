@@ -1,4 +1,4 @@
-Connect — BepInEx edition v0.1.30
+Connect — BepInEx edition v0.1.31
 ===============================
 
 Connect adds a host-authoritative Steam Relay session to People Playground.
@@ -18,8 +18,8 @@ Installation
 
 1. Fully close People Playground.
 2. Download the complete package from
-   `https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.30.zip`.
-   Extract the entire **Connect-v0.1.30.zip** directly into the folder that
+   `https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.31.zip`.
+   Extract the entire **Connect-v0.1.31.zip** directly into the folder that
    contains `People Playground.exe`, and allow Windows to merge the supplied
    `BepInEx` folder. The release already contains BepInEx 5 Unity.Mono-win-x64,
    `winhttp.dll`, `doorstop_config.ini`, the Connect DLL and its icon.
@@ -46,7 +46,8 @@ Connect uses BepInEx, whose loader files must sit beside `People Playground.exe`
 Steam Workshop cannot reliably place these external loader files there. The
 included `WorkshopCompanion` is a separate, standard People Playground mod
 prepared for Workshop publication. It detects whether the external Connect
-runtime actually started and shows an explicit recovery notice if it did not.
+runtime actually started with the matching Connect version and shows an explicit
+recovery notice when it is missing or outdated.
 The standard loader blocks file-path inspection, so exact file names are shown
 by the BepInEx runtime after it starts; the Companion safely covers the case
 where that runtime is absent entirely.

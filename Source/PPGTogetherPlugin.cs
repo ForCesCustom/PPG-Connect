@@ -21,9 +21,10 @@ namespace PPGTogether.BepInEx
         internal const string PluginGuid = "local.ppgtogether.steam";
         // Keep the GUID stable so this is a seamless update for existing users.
         internal const string PluginName = "Connect";
-        internal const string PluginVersion = "0.1.30";
+        internal const string PluginVersion = "0.1.31";
         internal const string ExpectedGameVersion = "1.27.16";
         internal const string RuntimeMarkerName = "Connect.RuntimeMarker";
+        internal const string RuntimeVersionMarkerName = "Connect.RuntimeVersion." + PluginVersion;
 
         private const ushort BotPeerBase = 60000;
         private const int MaximumBots = 3;
@@ -49,6 +50,7 @@ namespace PPGTogether.BepInEx
         private RoundedUiTheme ui;
         private Texture2D modIcon;
         private GameObject runtimeMarker;
+        private GameObject runtimeVersionMarker;
         private ConfigEntry<float> menuXSetting;
         private ConfigEntry<float> menuYSetting;
         private ConfigEntry<int> hostDefaultMaxPlayersSetting;
@@ -255,6 +257,7 @@ namespace PPGTogether.BepInEx
             if (ui != null) ui.Dispose();
             if (modIcon != null) Destroy(modIcon);
             if (runtimeMarker != null) Destroy(runtimeMarker);
+            if (runtimeVersionMarker != null) Destroy(runtimeVersionMarker);
         }
 
         private void EnsureRuntimeMarker()
@@ -264,6 +267,12 @@ namespace PPGTogether.BepInEx
             {
                 runtimeMarker = new GameObject(RuntimeMarkerName);
                 DontDestroyOnLoad(runtimeMarker);
+            }
+            runtimeVersionMarker = GameObject.Find(RuntimeVersionMarkerName);
+            if (runtimeVersionMarker == null)
+            {
+                runtimeVersionMarker = new GameObject(RuntimeVersionMarkerName);
+                DontDestroyOnLoad(runtimeVersionMarker);
             }
         }
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.31 — Runtime version mismatch detection
+
+- Added a versioned runtime marker shared between the BepInEx plugin and the
+  Workshop Companion.
+- The Companion now shows **CONNECT UPDATE REQUIRED** and the GitHub download
+  button when it finds a Connect runtime of a different version.
+
 ## 0.1.30 — Clean Workshop publication package
 
 - Rebuilt the Workshop publication package with corrected dialog wording and
