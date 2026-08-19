@@ -21,7 +21,7 @@ namespace PPGTogether.BepInEx
         internal const string PluginGuid = "local.ppgtogether.steam";
         // Keep the GUID stable so this is a seamless update for existing users.
         internal const string PluginName = "Connect";
-        internal const string PluginVersion = "0.1.35";
+        internal const string PluginVersion = "0.1.36";
         internal const string ExpectedGameVersion = "1.27.16";
         internal const string RuntimeMarkerName = "Connect.RuntimeMarker";
         internal const string RuntimeVersionMarkerName = "Connect.RuntimeVersion." + PluginVersion;
@@ -156,6 +156,18 @@ namespace PPGTogether.BepInEx
             ActivateBegin = 3,
             ActivateKeepAlive = 4,
             ActivateEnd = 5
+        }
+
+        // Reported by each guest over the existing authenticated relay. This
+        // lets the host see actual map-load progress instead of treating every
+        // lobby member as PLAYING when only the host has entered the map.
+        private enum PeerMapStatus : byte
+        {
+            InLobby = 0,
+            LoadingMap = 1,
+            Synchronising = 2,
+            Playing = 3,
+            Failed = 4
         }
 
         internal PPGTogetherPlugin()
@@ -606,6 +618,7 @@ namespace PPGTogether.BepInEx
             if (envelope.Type == WireMessage.SessionStarted) { HandleSessionStarted(); return; }
             if (envelope.Type == WireMessage.SessionEnding) { sessionActive = false; ClearBotCursors(); SetStatus("Host ended the session."); return; }
             if (envelope.Type == WireMessage.MapLoad && !IsHost) { HandleMapLoad(envelope); return; }
+            if (envelope.Type == WireMessage.ClientMapStatus && IsHost) { HandleClientMapStatus(packet, envelope); return; }
             if (envelope.Type == WireMessage.BotMode && !IsHost) { HandleBotMode(envelope); return; }
             if (envelope.Type == WireMessage.HostSettings && !IsHost) { HandleHostSettings(envelope); return; }
             if (envelope.Type == WireMessage.ActionDenied && !IsHost) { HandleActionDenied(envelope); return; }
@@ -644,7 +657,7 @@ namespace PPGTogether.BepInEx
             if (!peers.TryGetValue(packet.SteamId, out peer))
             {
                 if (peers.Count + 1 >= maxPlayers) { Logger.LogWarning("[Connect][Transport] Rejected Hello from " + packet.SteamId + ": Connect lobby capacity reached."); SendReject(packet.Connection, "Lobby is full"); return; }
-                peer = new Peer { SteamId = packet.SteamId, PeerId = nextPeerId++, Connection = packet.Connection, Name = SafeName(new Friend((SteamId)packet.SteamId).Name) };
+                peer = new Peer { SteamId = packet.SteamId, PeerId = nextPeerId++, Connection = packet.Connection, Name = SafeName(new Friend((SteamId)packet.SteamId).Name), MapStatus = sessionActive ? PeerMapStatus.LoadingMap : PeerMapStatus.InLobby };
                 peers.Add(packet.SteamId, peer);
             }
             else peer.Connection = packet.Connection;
@@ -703,6 +716,34 @@ namespace PPGTogether.BepInEx
             }
 
             QueueClientMapLoad(identity, "Steam Relay");
+        }
+
+        private void HandleClientMapStatus(ReceivedPacket packet, Envelope envelope)
+        {
+            Peer peer;
+            if (!peers.TryGetValue(packet.SteamId, out peer) || peer == null)
+            {
+                Logger.LogWarning("[Connect][Sync] Ignored map status from an unknown relay identity " + packet.SteamId + ".");
+                return;
+            }
+            Reader reader = new Reader(envelope.Payload);
+            byte rawStatus;
+            string mapIdentity;
+            if (envelope.PeerId != peer.PeerId || !reader.Byte(out rawStatus) || !reader.String(out mapIdentity) || reader.Remaining != 0 ||
+                rawStatus < (byte)PeerMapStatus.LoadingMap || rawStatus > (byte)PeerMapStatus.Failed || !IsValidMapIdentity(mapIdentity))
+            {
+                Logger.LogWarning("[Connect][Sync] Ignored malformed map status from " + peer.Name + ".");
+                return;
+            }
+            if (!sessionActive || !string.Equals(activeMapIdentity, mapIdentity, StringComparison.Ordinal))
+            {
+                Logger.LogWarning("[Connect][Sync] Ignored stale map status from " + peer.Name + ": " + mapIdentity + ".");
+                return;
+            }
+            peer.MapStatus = (PeerMapStatus)rawStatus;
+            peer.MapIdentity = mapIdentity;
+            Logger.LogInfo("[Connect][Sync] " + peer.Name + " reported " + PeerMapStatusLabel(peer.MapStatus) + " for host map " + mapIdentity + ".");
+            SetStatus(peer.Name + ": " + PeerMapStatusLabel(peer.MapStatus) + " host map.");
         }
 
         // Called by the narrow MapLoaderBehaviour Harmony postfix.  The host
@@ -787,6 +828,7 @@ namespace PPGTogether.BepInEx
             {
                 clientMapLoadPending = false;
                 clientSessionStartReceived = false;
+                SendClientMapStatus(PeerMapStatus.Failed, clientRequestedMapIdentity);
                 SetStatus("Map synchronisation timed out. The host map is unavailable locally.");
             }
             else if (Time.unscaledTime >= nextClientMapLoadAttemptAt)
@@ -829,6 +871,7 @@ namespace PPGTogether.BepInEx
             clientRequestedSceneName = string.Empty;
             SetStatus(source + " requested host map: " + SafeName(identity));
             Logger.LogInfo("[Connect][Sync] " + source + " map directive received: " + identity + ".");
+            SendClientMapStatus(PeerMapStatus.LoadingMap, identity);
             TryBeginClientMapLoad();
         }
 
@@ -847,6 +890,7 @@ namespace PPGTogether.BepInEx
             sessionActive = true;
             activeMapIdentity = currentMap;
             SendImmediateCursor();
+            SendClientMapStatus(PeerMapStatus.Playing, currentMap);
             SetStatus("Session active on host map: " + SafeName(currentMap));
         }
 
@@ -936,6 +980,7 @@ namespace PPGTogether.BepInEx
             clientMapReadyAt = Time.unscaledTime + 0.20f;
             SetStatus("Loaded host map. Synchronising Connect session.");
             Logger.LogInfo("[Connect][Sync] Client verified an instantiated host map via " + evidence + ": " + clientRequestedMapIdentity + ".");
+            SendClientMapStatus(PeerMapStatus.Synchronising, clientRequestedMapIdentity);
         }
 
         private void BeginHostSession(string mapIdentity)
@@ -944,6 +989,7 @@ namespace PPGTogether.BepInEx
             hostStartAwaitingMap = false;
             sessionActive = true;
             activeMapIdentity = mapIdentity;
+            SetPeerMapStatus(PeerMapStatus.LoadingMap, mapIdentity);
             lobby.Value.SetData("ppgt_state", "loading");
             lobby.Value.SetData("ppgt_map_id", mapIdentity);
             BroadcastMapLoad(mapIdentity);
@@ -959,6 +1005,7 @@ namespace PPGTogether.BepInEx
         {
             if (!IsHost || !lobby.HasValue || !IsValidMapIdentity(mapIdentity)) return;
             activeMapIdentity = mapIdentity;
+            SetPeerMapStatus(PeerMapStatus.LoadingMap, mapIdentity);
             lobby.Value.SetData("ppgt_state", "loading");
             lobby.Value.SetData("ppgt_map_id", mapIdentity);
             BroadcastMapLoad(mapIdentity);
@@ -978,6 +1025,37 @@ namespace PPGTogether.BepInEx
             Writer writer = new Writer(128);
             writer.String(mapIdentity);
             SendToConnection(connection, WireMessage.MapLoad, WireChannel.Control, peerId, writer.ToArray(), true);
+        }
+
+        private void SetPeerMapStatus(PeerMapStatus mapStatus, string mapIdentity)
+        {
+            foreach (Peer peer in peers.Values)
+            {
+                peer.MapStatus = mapStatus;
+                peer.MapIdentity = mapIdentity;
+            }
+        }
+
+        private void SendClientMapStatus(PeerMapStatus mapStatus, string mapIdentity)
+        {
+            if (IsHost || !lobby.HasValue || clientPeerId == 0 || transport == null || !transport.Connected || !IsValidMapIdentity(mapIdentity)) return;
+            Writer writer = new Writer(80);
+            writer.Byte((byte)mapStatus);
+            writer.String(mapIdentity);
+            SendToHost(WireMessage.ClientMapStatus, WireChannel.Control, writer.ToArray(), true);
+            Logger.LogInfo("[Connect][Sync] Sent host map status " + PeerMapStatusLabel(mapStatus) + " for " + mapIdentity + ".");
+        }
+
+        private static string PeerMapStatusLabel(PeerMapStatus mapStatus)
+        {
+            switch (mapStatus)
+            {
+                case PeerMapStatus.LoadingMap: return "LOADING MAP";
+                case PeerMapStatus.Synchronising: return "SYNCING";
+                case PeerMapStatus.Playing: return "PLAYING";
+                case PeerMapStatus.Failed: return "MAP FAILED";
+                default: return "IN LOBBY";
+            }
         }
 
         private static MapLoaderBehaviour FindMapLoader()
@@ -1797,7 +1875,12 @@ namespace PPGTogether.BepInEx
             if (registry.TryGet(args.Instance, out known)) return;
             string key = args.SpawnableAsset.NameToOrderBy;
             PPGTogetherIdentity identity = registry.RegisterHost(args.Instance, key);
-            if (identity != null) BroadcastSpawn(identity, args.Instance);
+            if (identity != null)
+            {
+                Logger.LogInfo("[Connect][Spawn] Host catalog spawn observed: key=" + SafeName(key) + ", netId=" + identity.NetId + ". Broadcasting to " + peers.Count + " guest(s).");
+                BroadcastSpawn(identity, args.Instance);
+            }
+            else Logger.LogWarning("[Connect][Spawn] Host catalog spawn could not be registered: " + SafeName(key) + ".");
         }
 
         private void OnItemRemoved(object sender, UserSpawnEventArgs args)
@@ -1820,19 +1903,24 @@ namespace PPGTogether.BepInEx
             writer.ULong(identity.NetId); writer.String(identity.SpawnKey); writer.Float(transform.position.x); writer.Float(transform.position.y); writer.Float(transform.eulerAngles.z);
             writer.Float(transform.localScale.x); writer.Float(transform.localScale.y); writer.Float(transform.localScale.z);
             Broadcast(WireMessage.Spawn, WireChannel.World, writer.ToArray(), true);
+            Logger.LogInfo("[Connect][Spawn] Broadcast Spawn: key=" + SafeName(identity.SpawnKey) + ", netId=" + identity.NetId + ", guests=" + peers.Count + ".");
         }
 
         private void HandleSpawnRequest(ReceivedPacket packet, Envelope envelope)
         {
-            Peer peer; if (!peers.TryGetValue(packet.SteamId, out peer)) return;
-            if (!hostGuestsCanSpawnSetting.Value) { SendActionDenied(packet.Connection, "Guests cannot spawn items in this session."); return; }
+            Peer peer; if (!peers.TryGetValue(packet.SteamId, out peer)) { Logger.LogWarning("[Connect][Spawn] Rejected SpawnRequest from unknown Steam identity " + packet.SteamId + "."); return; }
+            if (envelope.PeerId != peer.PeerId) { Logger.LogWarning("[Connect][Spawn] Rejected SpawnRequest with mismatched peer id from " + peer.Name + "."); return; }
+            if (!sessionActive) { Logger.LogWarning("[Connect][Spawn] Rejected SpawnRequest from " + peer.Name + ": host session is not active."); SendActionDenied(packet.Connection, "The host map is still loading."); return; }
+            if (!hostGuestsCanSpawnSetting.Value) { Logger.LogInfo("[Connect][Spawn] Denied SpawnRequest from " + peer.Name + ": host disabled guest spawns."); SendActionDenied(packet.Connection, "Guests cannot spawn items in this session."); return; }
             Reader reader = new Reader(envelope.Payload); string key; float x; float y; bool flipped;
-            if (!reader.String(out key) || !reader.Float(out x) || !reader.Float(out y) || !reader.Bool(out flipped) || reader.Remaining != 0 || !Finite(x) || !Finite(y)) return;
+            if (!reader.String(out key) || !reader.Float(out x) || !reader.Float(out y) || !reader.Bool(out flipped) || reader.Remaining != 0 || !Finite(x) || !Finite(y)) { Logger.LogWarning("[Connect][Spawn] Rejected malformed SpawnRequest from " + peer.Name + "."); return; }
+            Logger.LogInfo("[Connect][Spawn] Received SpawnRequest from " + peer.Name + ": key=" + SafeName(key) + ", x=" + x + ", y=" + y + ", flipped=" + flipped + ".");
             SpawnableAsset asset = ModAPI.FindSpawnable(key);
-            if (asset == null || asset.IsLocked) { SendActionDenied(packet.Connection, "Spawnable is unavailable: " + SafeName(key)); return; }
-            if (!TryConsumeGuestSpawn(packet.SteamId)) { SendActionDenied(packet.Connection, "Guest spawn limit reached. Try again shortly."); return; }
+            if (asset == null || asset.IsLocked) { Logger.LogInfo("[Connect][Spawn] Denied SpawnRequest from " + peer.Name + ": unavailable or locked " + SafeName(key) + "."); SendActionDenied(packet.Connection, "Spawnable is unavailable: " + SafeName(key)); return; }
+            if (!TryConsumeGuestSpawn(packet.SteamId)) { Logger.LogInfo("[Connect][Spawn] Denied SpawnRequest from " + peer.Name + ": rate limit."); SendActionDenied(packet.Connection, "Guest spawn limit reached. Try again shortly."); return; }
             if (SpawnAndReplicate(asset, new Vector2(x, y), flipped) == null)
             {
+                Logger.LogWarning("[Connect][Spawn] Host could not create requested item " + SafeName(key) + " for " + peer.Name + ".");
                 SendActionDenied(packet.Connection, "Server object limit reached or host could not create: " + SafeName(key)); return;
             }
             SetStatus(peer.Name + " spawned " + SafeName(key) + " from the catalog.");
@@ -1843,13 +1931,14 @@ namespace PPGTogether.BepInEx
             Reader reader = new Reader(envelope.Payload); ulong id; string key; float x; float y; float rotation; float sx; float sy; float sz;
             if (!reader.ULong(out id) || !reader.String(out key) || !reader.Float(out x) || !reader.Float(out y) || !reader.Float(out rotation) || !reader.Float(out sx) || !reader.Float(out sy) || !reader.Float(out sz) || reader.Remaining != 0) return;
             PPGTogetherIdentity existing;
-            if (registry.TryGet(id, out existing)) return;
+            if (registry.TryGet(id, out existing)) { Logger.LogInfo("[Connect][Spawn] Ignored duplicate Spawn netId=" + id + "."); return; }
             SpawnableAsset asset = ModAPI.FindSpawnable(key);
-            if (asset == null) { SetStatus("Missing spawnable: " + SafeName(key)); return; }
+            if (asset == null) { Logger.LogWarning("[Connect][Spawn] Guest is missing Spawn key=" + SafeName(key) + ", netId=" + id + "."); SetStatus("Missing spawnable: " + SafeName(key)); return; }
             GameObject instance = SpawnAsset(asset, new Vector2(x, y), rotation);
-            if (instance == null) { SetStatus("Failed to create: " + SafeName(key)); return; }
+            if (instance == null) { Logger.LogWarning("[Connect][Spawn] Guest failed to instantiate Spawn key=" + SafeName(key) + ", netId=" + id + "."); SetStatus("Failed to create: " + SafeName(key)); return; }
             instance.transform.localScale = new Vector3(sx, sy, sz);
-            registry.RegisterReplica(instance, id, key);
+            if (registry.RegisterReplica(instance, id, key) == null) { Logger.LogWarning("[Connect][Spawn] Guest could not register Spawn key=" + SafeName(key) + ", netId=" + id + "."); return; }
+            Logger.LogInfo("[Connect][Spawn] Guest created authoritative Spawn: key=" + SafeName(key) + ", netId=" + id + ".");
         }
 
         private void HandleDespawn(Envelope envelope)
@@ -1879,12 +1968,13 @@ namespace PPGTogether.BepInEx
             if (registry.Count >= MaximumNetworkObjects())
                 return null;
             GameObject created = SpawnAsset(asset, position, 0f, flipped);
-            if (created == null) return null;
+            if (created == null) { Logger.LogWarning("[Connect][Spawn] SpawnAsset returned null for " + SafeName(asset == null ? string.Empty : asset.NameToOrderBy) + "."); return null; }
             PPGTogetherIdentity existing;
             if (!registry.TryGet(created, out existing))
             {
                 existing = registry.RegisterHost(created, asset.NameToOrderBy);
                 if (existing != null) BroadcastSpawn(existing, created);
+                else Logger.LogWarning("[Connect][Spawn] Created item could not receive a network identity: " + SafeName(asset.NameToOrderBy) + ".");
             }
             return created;
         }
@@ -1929,11 +2019,12 @@ namespace PPGTogether.BepInEx
 
         internal void RequestCatalogSpawn(SpawnableAsset asset, bool flipped)
         {
-            if (asset == null || string.IsNullOrEmpty(asset.NameToOrderBy)) { SetStatus("The selected catalog item is unavailable."); return; }
-            if (!CanClientSendWorldRequest()) { SetStatus("Waiting for the Steam Relay handshake before catalog spawn."); return; }
+            if (asset == null || string.IsNullOrEmpty(asset.NameToOrderBy)) { Logger.LogWarning("[Connect][Spawn] Tab catalog interception had no usable SpawnableAsset."); SetStatus("The selected catalog item is unavailable."); return; }
+            if (!CanClientSendWorldRequest()) { Logger.LogWarning("[Connect][Spawn] Tab spawn for " + SafeName(asset.NameToOrderBy) + " was intercepted, but the guest relay session is not ready. session=" + sessionActive + ", peer=" + clientPeerId + ", connected=" + (transport != null && transport.Connected) + "."); SetStatus("Waiting for the Steam Relay handshake before catalog spawn."); return; }
             Vector2 point = GetWorldCursor();
             Writer writer = new Writer(80); writer.String(asset.NameToOrderBy); writer.Float(point.x); writer.Float(point.y); writer.Bool(flipped);
             SendToHost(WireMessage.SpawnRequest, WireChannel.World, writer.ToArray(), true);
+            Logger.LogInfo("[Connect][Spawn] Intercepted Tab spawn and sent SpawnRequest: key=" + SafeName(asset.NameToOrderBy) + ", x=" + point.x + ", y=" + point.y + ", flipped=" + flipped + ".");
             SetStatus("Requested " + SafeName(asset.NameToOrderBy) + " from the Tab catalog. Waiting for host authority.");
         }
 
@@ -2772,6 +2863,8 @@ namespace PPGTogether.BepInEx
         {
             ulong memberId = (ulong)member.Id;
             bool host = member.Id == current.Owner.Id;
+            Peer peer = null;
+            if (IsHost && !host) peers.TryGetValue(memberId, out peer);
             avatars.Request(memberId);
             Texture2D avatar = avatars.Get(memberId);
             ui.Card(rect, new Color(0.09f, 0.15f, 0.18f, 1f));
@@ -2779,7 +2872,9 @@ namespace PPGTogether.BepInEx
             if (avatar != null) GUI.DrawTexture(new Rect(rect.x + 11f, rect.y + 10f, 29f, 29f), avatar, ScaleMode.StretchToFill, true);
             else GUI.Label(new Rect(rect.x + 10f, rect.y + 14f, 31f, 17f), "?", ui.Center);
             GUI.Label(new Rect(rect.x + 53f, rect.y + 8f, rect.width - 180f, 19f), Truncate(SafeName(member.Name), 27), ui.Label);
-            string detail = host ? "SESSION HOST" : (sessionActive ? "PLAYING" : (hostStartAwaitingMap ? "WAITING FOR MAP" : "IN LOBBY"));
+            PeerMapStatus guestMapStatus = peer == null ? (sessionActive ? PeerMapStatus.LoadingMap : PeerMapStatus.InLobby) : peer.MapStatus;
+            string guestStatusLabel = IsHost ? PeerMapStatusLabel(guestMapStatus) : (sessionActive ? "PLAYING" : (hostStartAwaitingMap ? "WAITING FOR MAP" : "IN LOBBY"));
+            string detail = host ? "SESSION HOST" : guestStatusLabel;
             GUI.Label(new Rect(rect.x + 53f, rect.y + 27f, 150f, 14f), detail, ui.Small);
             if (host)
             {
@@ -2788,8 +2883,21 @@ namespace PPGTogether.BepInEx
             }
             else
             {
-                ui.Pill(new Rect(rect.x + rect.width - 98f, rect.y + 13f, 82f, 22f), new Color(0.09f, 0.34f, 0.31f, 1f));
-                GUI.Label(new Rect(rect.x + rect.width - 94f, rect.y + 17f, 74f, 14f), sessionActive ? "PLAYING" : (hostStartAwaitingMap ? "SYNCING" : "READY"), ui.ButtonSmall);
+                UColor statusColor = IsHost ? PeerMapStatusColor(guestMapStatus) : new Color(0.09f, 0.34f, 0.31f, 1f);
+                ui.Pill(new Rect(rect.x + rect.width - 98f, rect.y + 13f, 82f, 22f), statusColor);
+                GUI.Label(new Rect(rect.x + rect.width - 94f, rect.y + 17f, 74f, 14f), IsHost ? guestStatusLabel : (sessionActive ? "PLAYING" : (hostStartAwaitingMap ? "SYNCING" : "READY")), ui.ButtonSmall);
+            }
+        }
+
+        private static UColor PeerMapStatusColor(PeerMapStatus mapStatus)
+        {
+            switch (mapStatus)
+            {
+                case PeerMapStatus.LoadingMap: return new UColor(0.56f, 0.34f, 0.12f, 1f);
+                case PeerMapStatus.Synchronising: return new UColor(0.12f, 0.32f, 0.52f, 1f);
+                case PeerMapStatus.Playing: return new UColor(0.09f, 0.34f, 0.31f, 1f);
+                case PeerMapStatus.Failed: return new UColor(0.48f, 0.12f, 0.18f, 1f);
+                default: return new UColor(0.14f, 0.26f, 0.32f, 1f);
             }
         }
 
@@ -2918,7 +3026,11 @@ namespace PPGTogether.BepInEx
         }
 
         internal bool ShouldBlockVanillaWorldInput { get { return patchApplied && !IsHost && sessionActive && lobby.HasValue; } }
-        internal bool ShouldRouteVanillaCatalogSpawn { get { return ShouldBlockVanillaWorldInput; } }
+        // CatalogBehaviour.Spawn is independently patched. Do not make its
+        // routing depend on the unrelated world-tool patch flag: otherwise a
+        // harmless tool compatibility failure silently turns a guest Tab spawn
+        // into an unsynchronised local item.
+        internal bool ShouldRouteVanillaCatalogSpawn { get { return !IsHost && sessionActive && lobby.HasValue; } }
         private bool IsHost { get { return lobby.HasValue && SteamReady() && lobby.Value.Owner.Id == SteamClient.SteamId && transport != null && transport.Hosting; } }
 
         private ushort GetPeerId(ulong steamId)
@@ -2977,7 +3089,7 @@ namespace PPGTogether.BepInEx
         private static GUIStyle HeaderStyle() { GUIStyle style = new GUIStyle(GUI.skin.label); style.fontSize = 20; style.fontStyle = FontStyle.Bold; style.normal.textColor = new UColor(0.3f, 0.9f, 1f); return style; }
         private static GUIStyle WrapStyle() { GUIStyle style = new GUIStyle(GUI.skin.label); style.wordWrap = true; return style; }
 
-        private sealed class Peer { internal ulong SteamId; internal ushort PeerId; internal Connection Connection; internal string Name; }
+        private sealed class Peer { internal ulong SteamId; internal ushort PeerId; internal Connection Connection; internal string Name; internal PeerMapStatus MapStatus; internal string MapIdentity; }
         private struct SpawnRateWindow { internal float StartTime; internal int Count; }
         private struct HostSettingsView
         {

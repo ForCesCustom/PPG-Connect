@@ -1,11 +1,13 @@
-# Known limitations — Connect BepInEx edition v0.1.35
+# Known limitations — Connect BepInEx edition v0.1.36
 
 - Every player must extract the same complete Connect ZIP into the game root.
   It already contains BepInEx 5 x64, but Connect remains a non-standard loader
   with Harmony patches rather than a normal People Playground source mod.
-- Real two-account relay gameplay has not been run in this environment. The
-  local runtime checks prove plugin load, Steam lobby creation and Steam's invite
-  chooser, but cannot prove the remote peer path without a second account/device.
+- This environment cannot run a new two-account Steam test. The prior manual
+  test established relay cursor movement and automatic guest map entry; the
+  v0.1.36 host-status and Tab-spawn changes are compile/protocol tested but still
+  require the next host-and-friend runtime test. The new `[Connect][Spawn]`
+  records identify the exact failed stage without logging cursor/snapshot spam.
 - Join-in-progress does not reconstruct pre-existing map objects. Start with an
   empty map, create the lobby, press **START & SYNC MAP** and, if needed, choose
   the host map; then use the normal Tab catalog for objects expected to

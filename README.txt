@@ -1,4 +1,4 @@
-Connect — BepInEx edition v0.1.35
+Connect — BepInEx edition v0.1.36
 ===============================
 
 Connect adds a host-authoritative Steam Relay session to People Playground.
@@ -18,8 +18,8 @@ Installation
 
 1. Fully close People Playground.
 2. Download the complete package from
-   `https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.35.zip`.
-   Extract the entire **Connect-v0.1.35.zip** directly into the folder that
+   `https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.36.zip`.
+   Extract the entire **Connect-v0.1.36.zip** directly into the folder that
    contains `People Playground.exe`, and allow Windows to merge the supplied
    `BepInEx` folder. The release already contains BepInEx 5 Unity.Mono-win-x64,
    `winhttp.dll`, `doorstop_config.ini`, the Connect DLL and its icon.
@@ -90,6 +90,10 @@ Host a session
    that same installed map automatically through People Playground's own scene
    transition. The host entering a map with guests also starts this map-follow
    path. A connected non-host cannot select or enter a divergent local map.
+   While the map changes, the host's member card reports each guest separately:
+   **LOADING MAP**, **SYNCING**, **PLAYING**, or **MAP FAILED**. The status is
+   sent by that guest through the authenticated Steam Relay, not guessed from
+   Steam lobby membership.
 5. The session host is the physics authority.
 
 Join a friend
@@ -152,6 +156,9 @@ Current implemented functionality
   physical interaction and replicated spawns stay host-authoritative.
 - The standard Tab catalog is each player's own spawn UI. All client catalog
   spawns remain host-authoritative and are replicated through the Spawn event.
+  v0.1.36 records each critical spawn stage in `LogOutput.log`: Tab interception,
+  request receipt, host broadcast and guest instantiation. This is event-level
+  logging, not a per-frame network trace.
 - Host-validated vanilla direct Use plus context Activate/Delete for registered
   Connect objects, including renewable continuous Use for automatic weapons and
   continuous-use components, with per-player permissions and rate limits.

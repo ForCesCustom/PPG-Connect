@@ -1,4 +1,4 @@
-# Connect relay protocol v4
+# Connect relay protocol v5
 
 The BepInEx plugin sends this binary protocol through the game-supplied
 Facepunch `SteamNetworkingSockets` relay connection. It never serializes CLR
@@ -38,6 +38,13 @@ game's loaded `MapLoaderBehaviour`; the client resolves it only against maps
 already installed locally and invokes the same `MapLoaderBehaviour.Load()`
 path. No map files, Workshop assets or paths cross the network.
 
+`ClientMapStatus` (`23`) is a reliable client-to-host Control message with one
+bounded host-issued `Map.UniqueIdentity` and a status byte: `LOADING MAP`,
+`SYNCING`, `PLAYING`, or `MAP FAILED`. It only drives the host lobby card. The
+host rejects an unknown peer, mismatched peer ID, stale map identity, malformed
+payload, or status outside that small range; it never accepts a client-selected
+map or scene name.
+
 ## Envelope
 
 All fields are little-endian. The fixed header is 30 bytes.
@@ -45,7 +52,7 @@ All fields are little-endian. The fixed header is 30 bytes.
 | Offset | Bytes | Field |
 |---:|---:|---|
 | 0 | 4 | Magic `0x54475050` (`PPGT`, retained for wire compatibility) |
-| 4 | 2 | Protocol version (`4`) |
+| 4 | 2 | Protocol version (`5`) |
 | 6 | 1 | Message type |
 | 7 | 1 | Logical channel |
 | 8 | 8 | Session nonce |
@@ -61,8 +68,8 @@ finite floats before a handler can apply the message. A stale nonce is dropped.
 
 ## Channels
 
-- `Control` (reliable): Hello, Welcome, Reject, `MapLoad`, session start/end,
-  BotMode and HostSettings.
+- `Control` (reliable): Hello, Welcome, Reject, `MapLoad`, `ClientMapStatus`,
+  session start/end, BotMode and HostSettings.
 - `World` (reliable unless an update): grab lease, spawn/despawn and bounded
   interaction requests.
 - `Snapshot` (unreliable): root Rigidbody2D state.
@@ -89,6 +96,8 @@ finite floats before a handler can apply the message. A stale nonce is dropped.
 - `MapLoad`: host-selected installed-map identity. The client displays a clear
   local-map/timeout status if that identity cannot be resolved; it never enters
   the active gameplay state while still at the title screen.
+- `ClientMapStatus`: guest progress for the host UI only; it is validated against
+  the host's current map and cannot alter session map authority.
 - `HostSettings`: host-only, fixed 12-byte payload: velocity iterations (1–16),
   position iterations (1–16), snapshot rate (10–30 Hz), object cap (25–1000),
   guest spawn cap (1–60/min), spawn/grab/activate/delete/bot permission flags

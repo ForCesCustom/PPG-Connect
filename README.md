@@ -2,7 +2,7 @@
 
 [Русская версия](#русская-версия) · [English](#english)
 
-> Current package: **v0.1.35** · protocol **v4** · People Playground **1.27.16**
+> Current package: **v0.1.36** · protocol **v5** · People Playground **1.27.16**
 
 ## English
 
@@ -15,7 +15,7 @@ addresses.
 
 Download the complete plug-and-play ZIP:
 
-**[Connect-v0.1.35.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.35.zip)**
+**[Connect-v0.1.36.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.36.zip)**
 
 1. Close People Playground.
 2. Extract the full ZIP into the folder containing `People Playground.exe`.
@@ -48,6 +48,11 @@ The same direct URL is printed in the game notice.
   the requested map root. Connected non-hosts cannot select or enter a
   divergent local map. It also sends compact cursor updates at 60–120 Hz even
   while UI is open.
+- Version 0.1.36 reports each guest's real map state to the host panel:
+  `LOADING MAP`, `SYNCING`, `PLAYING`, or `MAP FAILED`. It also decouples the
+  exact guest Tab-catalog spawn interception from the unrelated tool-input
+  patch and logs every spawn boundary: interception, host receipt/broadcast and
+  guest creation.
 - Version 0.1.33 fixes the host relay poll-group registration that previously
   let a lobby connection appear accepted while `Hello`, cursor and map packets
   were never received. Focused relay and map diagnostics are written to
@@ -109,7 +114,7 @@ Steam-клиент, не открывает порты и не передаёт 
 
 Скачай полный plug-and-play архив:
 
-**[Connect-v0.1.35.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.35.zip)**
+**[Connect-v0.1.36.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.36.zip)**
 
 1. Полностью закрой People Playground.
 2. Распакуй весь ZIP в папку, где лежит `People Playground.exe`.
@@ -139,6 +144,10 @@ BepInEx runtime, он увидит нативное окно People Playground �
   Playground: сначала sandbox-сцена, затем проверка root нужной карты.
   Подключённый не-хост не может сам выбрать или открыть другую карту. Курсор
   отправляется с частотой 60–120 Гц и не замедляется в UI.
+- Версия 0.1.36 показывает хосту реальный статус загрузки карты каждого
+  гостя: `LOADING MAP`, `SYNCING`, `PLAYING` или `MAP FAILED`. Также Tab-спавн
+  гостя больше не зависит от несвязанного патча world input и пишет в лог все
+  ключевые этапы: перехват, получение/рассылка хостом и создание у гостя.
 - В версии 0.1.33 исправлена регистрация соединения в host poll group: раньше
   лобби могло выглядеть подключённым, но хост не принимал `Hello`, курсоры и
   команду карты. Подробный relay/map журнал находится в

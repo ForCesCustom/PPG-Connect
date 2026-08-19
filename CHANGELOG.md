@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.36 — Guest map progress and observable Tab-spawn route
+
+- Added a validated Steam Relay `ClientMapStatus` control message. The host's
+  lobby cards now show the real state reported by every connected guest:
+  **LOADING MAP**, **SYNCING**, **PLAYING**, or **MAP FAILED**. A status is
+  rejected unless it belongs to that relay identity, peer ID and the host's
+  currently selected map.
+- Decoupled the exact `CatalogBehaviour.Spawn(SpawnableAsset, bool)` route from
+  the unrelated world-tool compatibility flag. A compatible connected client
+  now routes its own normal Tab catalog selection to the host instead of
+  silently creating a local-only item because another tool patch is unavailable.
+- Added event-level `[Connect][Spawn]` traces for Tab interception, host request
+  validation, host creation/broadcast, duplicate/missing asset handling and
+  guest instantiation. Cursor and snapshot packets remain unlogged.
+- Added protocol smoke coverage for the new bounded map-status message and
+  bumped the wire protocol to 5. Both players must install v0.1.36.
+
 ## 0.1.35 — Actual sandbox scene transition for guests
 
 - Replaced the client title-menu `MapLoaderBehaviour.Load()` shortcut with the

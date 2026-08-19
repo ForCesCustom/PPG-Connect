@@ -1,4 +1,4 @@
-# Patches — Connect BepInEx edition v0.1.35
+# Patches — Connect BepInEx edition v0.1.36
 
 ## ClientWorldInputPatch
 
@@ -33,8 +33,11 @@ security, the game loader, OS mouse input, or anti-cheat/security components.
 - Behaviour: only in a live non-host Connect session, sends the selected stable
   catalog key, flip flag and world cursor position to the host and skips the
   local base-game spawn. Host and single-player catalog behavior is unchanged.
-- Signature/version guard: exact overload signature. If patching fails,
-  `patchApplied` remains false and no client input suppression is claimed.
+- Signature/version guard: exact overload signature. Catalog routing is
+  intentionally independent from the `HandleTools` status: a failure of the
+  unrelated world-tool gate must never silently create an unsynchronised local
+  Tab item. If this exact catalog overload cannot be patched, vanilla behaviour
+  remains untouched and the Connect log records the failed patch installation.
 
 ## ClientContextMenuSelectionPatch
 

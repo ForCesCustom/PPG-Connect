@@ -1,4 +1,4 @@
-# Connect cursor, Tab Catalog, interactions, Bot Mode, movable panel and Settings verification — 0.1.35
+# Connect cursor, Tab Catalog, interactions, Bot Mode, movable panel and Settings verification — 0.1.36
 
 Executed on 2026-08-19:
 
@@ -43,7 +43,14 @@ cursor; the host validates the Steam transport identity and relays it with the
 source peer ID.  Peer ID 0 is explicitly accepted on clients, so the host's
 gold cursor is not discarded.
 
-Not executed here: a real two-account Steam relay session.  That requires a
-second Steam account and separately isolated game instance.  Therefore this
-report does not claim that a remote Unity cursor has been visually observed in
-a live two-player session.
+`ClientMapStatus` protocol v5 envelope/string round-trip is covered by the
+protocol smoke test. The live host card updates only after the host validates
+the relay identity, peer ID and host-selected map. The client Tab-spawn route
+now has event-level logs for interception, host receipt/broadcast and guest
+instantiation; a new two-account spawn test remains required.
+
+Not executed here: a new real two-account Steam relay session. That requires a
+second Steam account and separately isolated game instance. Earlier manual
+testing reported working remote cursor movement and guest map entry, but this
+report does not claim that the v0.1.36 Tab-spawn change has been verified on two
+accounts.

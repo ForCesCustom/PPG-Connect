@@ -1,6 +1,6 @@
 Connect BepInEx edition
-Mod version: 0.1.35
-Protocol version: 4
+Mod version: 0.1.36
+Protocol version: 5
 Target game: People Playground 1.27.16 (Steam build 24782494)
 Target runtime: Unity 2020.3.1f1 Mono x64
 Required loader: BepInEx 5 Unity.Mono-win-x64
