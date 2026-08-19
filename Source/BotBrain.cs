@@ -248,10 +248,30 @@ namespace PPGTogether.BepInEx
         }
         private void BuildPlan(BotGoal g, BotPerception p)
         {
-            if (g.Kind == BotGoalKind.BuildScene) { plan.Add(Step(BotAction.Spawn, g.Point, g.Point, 0, g.SpawnKind, "create " + g.SpawnKind)); return; }
-            if (g.Kind == BotGoalKind.ArrangeObjects) { plan.Add(Step(BotAction.GrabAndPlace, g.Point, Placement(g, p), g.TargetKey, BotObjectKind.Unknown, "arrange object")); return; }
-            if (g.Kind == BotGoalKind.CleanWorkspace) { plan.Add(Step(BotAction.Cleanup, g.Point, g.Point, g.TargetKey, BotObjectKind.Unknown, "clear safe debris")); return; }
-            if (g.Kind == BotGoalKind.RunExperiment) { plan.Add(Step(BotAction.Activate, g.Point, g.Point, g.TargetKey, BotObjectKind.Unknown, "use selected mechanism")); return; }
+            if (g.Kind == BotGoalKind.BuildScene)
+            {
+                plan.Add(Step(BotAction.Spawn, g.Point, g.Point, 0, g.SpawnKind, "create " + g.SpawnKind));
+                plan.Add(Step(BotAction.Explore, g.Point, g.Point, 0, BotObjectKind.Unknown, "review new scene area"));
+                return;
+            }
+            if (g.Kind == BotGoalKind.ArrangeObjects)
+            {
+                plan.Add(Step(BotAction.GrabAndPlace, g.Point, Placement(g, p), g.TargetKey, BotObjectKind.Unknown, "arrange object"));
+                plan.Add(Step(BotAction.Inspect, g.Point, g.Point, g.TargetKey, BotObjectKind.Unknown, "review placement"));
+                return;
+            }
+            if (g.Kind == BotGoalKind.CleanWorkspace)
+            {
+                plan.Add(Step(BotAction.Inspect, g.Point, g.Point, g.TargetKey, BotObjectKind.Unknown, "check cleanup target"));
+                plan.Add(Step(BotAction.Cleanup, g.Point, g.Point, g.TargetKey, BotObjectKind.Unknown, "clear safe debris"));
+                return;
+            }
+            if (g.Kind == BotGoalKind.RunExperiment)
+            {
+                plan.Add(Step(BotAction.Inspect, g.Point, g.Point, g.TargetKey, BotObjectKind.Unknown, "inspect experiment tool"));
+                plan.Add(Step(BotAction.Activate, g.Point, g.Point, g.TargetKey, BotObjectKind.Unknown, "use selected mechanism"));
+                return;
+            }
             if (g.Kind == BotGoalKind.AvoidDanger) { plan.Add(Step(BotAction.Recover, g.Point, g.Point, 0, BotObjectKind.Unknown, "leave danger")); return; }
             if (g.Kind == BotGoalKind.InspectNovelObject) { plan.Add(Step(BotAction.Inspect, g.Point, g.Point, g.TargetKey, BotObjectKind.Unknown, "inspect novel object")); return; }
             plan.Add(Step(BotAction.Explore, g.Point, g.Point, 0, BotObjectKind.Unknown, "survey map frontier"));
@@ -297,5 +317,3 @@ namespace PPGTogether.BepInEx
         private static string Cell(BotPoint p) { return ((int)Math.Floor(p.X / 6f)).ToString() + ":" + ((int)Math.Floor(p.Y / 6f)).ToString(); }
     }
 }
-
-

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.41 — Multi-step bot plans
+
+- Bot plans now execute bounded follow-up steps instead of stopping at a single
+  random action: a new scene is reviewed after spawning, moved objects are
+  inspected after placement, cleanup is inspected before deletion, and a
+  mechanism/weapon experiment is inspected before it is activated.
+- This is a wire-compatible bot-only behaviour update. It preserves Bot Mode's
+  existing UI, count selector, cursors, peer IDs, host authority and all
+  existing multiplayer packet formats.
+
 ## 0.1.40 — Autonomous bot intelligence
 
 - Replaced the old random four-item bot routine with a host-only autonomous

@@ -20,7 +20,7 @@ living count and unexplored interest-map frontiers. `BotMind` combines:
 - session memory of outcomes, recently inspected objects, spawn cooldowns and
   repeated goals;
 - utility-scored candidate goals with a small deterministic variation;
-- a bounded one-step action plan and an expiry/hysteresis rule;
+- a bounded multi-step action plan and an expiry/hysteresis rule;
 - `BotCoordinationBoard` leases so two cursors do not choose the same target.
 
 The selected intent is still executed by the existing host code. Spawn goes
@@ -55,5 +55,3 @@ only when a new plan is made; cursor and snapshot traffic remains unlogged.
 selection, claims, failure recovery and danger priority without Unity/Steam.
 The main project still compiles against the actual local People Playground
 assemblies; runtime behaviour requiring a map is not claimed as a headless test.
-
-
