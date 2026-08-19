@@ -2,7 +2,7 @@
 
 [Русская версия](#русская-версия) · [English](#english)
 
-> Current package: **v0.1.33** · protocol **v4** · People Playground **1.27.16**
+> Current package: **v0.1.34** · protocol **v4** · People Playground **1.27.16**
 
 ## English
 
@@ -15,7 +15,7 @@ addresses.
 
 Download the complete plug-and-play ZIP:
 
-**[Connect-v0.1.33.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.33.zip)**
+**[Connect-v0.1.34.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.34.zip)**
 
 1. Close People Playground.
 2. Extract the full ZIP into the folder containing `People Playground.exe`.
@@ -43,6 +43,10 @@ The same direct URL is printed in the game notice.
   same locally installed map automatically.
 - Steam relay transport carries the handshake, cursor updates and approved game
   actions.
+- Version 0.1.34 fixes the client map-instantiation path: a title-menu map
+  selection no longer counts as a loaded map. The host map is assigned to the
+  game loader, and a client becomes `PLAYING` only after its map root exists.
+  It also sends compact cursor updates at 60–120 Hz even while UI is open.
 - Version 0.1.33 fixes the host relay poll-group registration that previously
   let a lobby connection appear accepted while `Hello`, cursor and map packets
   were never received. Focused relay and map diagnostics are written to
@@ -104,7 +108,7 @@ Steam-клиент, не открывает порты и не передаёт 
 
 Скачай полный plug-and-play архив:
 
-**[Connect-v0.1.33.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.33.zip)**
+**[Connect-v0.1.34.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.34.zip)**
 
 1. Полностью закрой People Playground.
 2. Распакуй весь ZIP в папку, где лежит `People Playground.exe`.
@@ -130,6 +134,10 @@ BepInEx runtime, он увидит нативное окно People Playground �
   После старта хоста и выбора карты они автоматически загружают ту же локально
   установленную карту.
 - Steam Relay передаёт handshake, курсоры и подтверждённые игровые действия.
+- Версия 0.1.34 исправляет реальную загрузку карты на клиенте: выбор карты в
+  меню больше не считается загруженной картой. Клиент получает карту через
+  штатный загрузчик игры и станет `PLAYING` только после создания её root.
+  Курсор теперь отправляется с частотой 60–120 Гц и не замедляется в UI.
 - В версии 0.1.33 исправлена регистрация соединения в host poll group: раньше
   лобби могло выглядеть подключённым, но хост не принимал `Hello`, курсоры и
   команду карты. Подробный relay/map журнал находится в

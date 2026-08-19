@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.34 — Real map instantiation and high-rate cursors
+
+- Fixed the client map-follow defect exposed by the two-player logs: in People
+  Playground 1.27.16, `MapLoadOverride` is editor-only, so it changed the
+  selected map without constructing it in a normal game build. Connect now
+  assigns the host map to `MapLoaderBehaviour.CurrentMap`, calls the game's own
+  loader, and confirms the session only after an instantiated map root exists.
+- A host entering a map while lobby guests are present automatically broadcasts
+  that map. The client logs loader identity plus child counts and never reports
+  `PLAYING` solely because the title screen has a selected `CurrentMap`.
+- Cursor packets now remain at 60–120 Hz while UI is open; `UI busy` is only an
+  interaction flag. Added bounded 50 ms velocity prediction and expanded the
+  local smoothing range for noticeably smoother remote cursor motion.
+
 ## 0.1.33 — Relay receive-path repair and transport trace
 
 - Fixed the actual Steam relay receive-path defect: Connect now calls the

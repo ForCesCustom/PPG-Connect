@@ -21,7 +21,7 @@ namespace PPGTogether.BepInEx
         internal const string PluginGuid = "local.ppgtogether.steam";
         // Keep the GUID stable so this is a seamless update for existing users.
         internal const string PluginName = "Connect";
-        internal const string PluginVersion = "0.1.33";
+        internal const string PluginVersion = "0.1.34";
         internal const string ExpectedGameVersion = "1.27.16";
         internal const string RuntimeMarkerName = "Connect.RuntimeMarker";
         internal const string RuntimeVersionMarkerName = "Connect.RuntimeVersion." + PluginVersion;
@@ -84,6 +84,10 @@ namespace PPGTogether.BepInEx
         private bool clientSessionStartReceived;
         private bool clientMapLoadPending;
         private bool clientMapLoadIssued;
+        // MapLoaderBehaviour.CurrentMap records a selected map even on the
+        // title screen.  Keep separate evidence that a map prefab was really
+        // instantiated before telling a client that it is playing.
+        private bool clientMapInstanceLoaded;
         private bool menuVisible;
         private bool menuDragging;
         private bool menuSettingsVisible;
@@ -102,6 +106,8 @@ namespace PPGTogether.BepInEx
         private float nextClientActivationHeartbeatAt;
         private float clientMapLoadDeadline;
         private float clientMapReadyAt;
+        private float nextClientMapProbeAt;
+        private float nextClientMapLoadAttemptAt;
         private Vector2 previousLocalCursor;
         private float previousLocalCursorAt;
         private bool hasPreviousLocalCursor;
@@ -179,9 +185,15 @@ namespace PPGTogether.BepInEx
             playerShowRemoteNamesSetting = Config.Bind("Player", "Show Remote Names", true, "Show names beside remote player and bot cursors.");
             playerShowRemoteAvatarsSetting = Config.Bind("Player", "Show Remote Avatars", true, "Show cached Steam avatars beside remote player cursors.");
             playerCursorScaleSetting = Config.Bind("Player", "Remote Cursor Scale", 1f, "Local visual scale for remote cursors. Valid range: 0.60 to 1.80.");
-            playerCursorSmoothingSetting = Config.Bind("Player", "Remote Cursor Smoothing", 12f, "Local remote cursor smoothing. Valid range: 4 to 24.");
-            playerCursorSendRateSetting = Config.Bind("Player", "Cursor Send Rate Hz", 30, "Local cursor update rate. Valid range: 15 to 45 Hz.");
+            playerCursorSmoothingSetting = Config.Bind("Player", "Remote Cursor Smoothing", 22f, "Local remote cursor smoothing. Valid range: 8 to 48.");
+            playerCursorSendRateSetting = Config.Bind("Player", "Cursor Send Rate Hz", 60, "Local cursor update rate. Valid range: 60 to 120 Hz.");
             supportGithubReleaseUrlSetting = Config.Bind("Support", "GitHub Download URL", ConnectSupportLinks.PublishedReleaseUrl, "Official HTTPS direct download used by the missing-files recovery notice. An empty or invalid saved value falls back to the published Connect package.");
+            // Migrate older releases, which deliberately limited cursor
+            // traffic to 45 Hz.  Cursor positions are compact unreliable
+            // packets, so 60 Hz is still a small bandwidth cost but removes
+            // visible stepping on high-refresh displays.
+            if (playerCursorSendRateSetting.Value < 60) playerCursorSendRateSetting.Value = 60;
+            if (playerCursorSmoothingSetting.Value < 8f) playerCursorSmoothingSetting.Value = 8f;
             menuPosition = new Vector2(menuXSetting.Value, menuYSetting.Value);
             maxPlayers = ClampHostCapacity(hostDefaultMaxPlayersSetting.Value);
             privacy = ReadPrivacy(hostDefaultPrivacySetting.Value);
@@ -705,7 +717,10 @@ namespace PPGTogether.BepInEx
 
             if (IsHost && lobby.HasValue)
             {
-                if (hostStartAwaitingMap)
+                // A host that already has guests should not have to race the
+                // Start button against the map UI.  Once that host enters a
+                // real map, start/synchronise the session for those guests.
+                if (hostStartAwaitingMap || (!sessionActive && lobby.Value.MemberCount > 1))
                     BeginHostSession(identity);
                 else if (sessionActive && !string.Equals(activeMapIdentity, identity, StringComparison.Ordinal))
                     SynchroniseHostMapChange(identity);
@@ -714,9 +729,10 @@ namespace PPGTogether.BepInEx
 
             if (!IsHost && clientMapLoadPending && string.Equals(clientRequestedMapIdentity, identity, StringComparison.Ordinal))
             {
-                clientMapLoadPending = false;
-                clientMapReadyAt = Time.unscaledTime + 0.20f;
-                SetStatus("Loaded host map. Synchronising Connect session.");
+                if (IsRequestedClientMapActuallyLoaded())
+                    MarkClientMapLoaded("MapLoaderBehaviour callback");
+                else
+                    Logger.LogWarning("[Connect][Sync] MapLoaderBehaviour.Load completed for the requested map, but no instantiated map root was found. Connect will keep waiting instead of entering a false PLAYING state.");
             }
         }
 
@@ -742,20 +758,28 @@ namespace PPGTogether.BepInEx
                 TryActivateClientSession();
                 return;
             }
-            string currentMap;
-            if (TryGetCurrentMapIdentity(out currentMap) && string.Equals(currentMap, clientRequestedMapIdentity, StringComparison.Ordinal))
+            // CurrentMap alone is not proof that the player left the title
+            // screen: People Playground stores a selected map there before it
+            // constructs the map.  Probe at 10 Hz while loading, never every
+            // frame, and only activate after a map root really exists.
+            if (Time.unscaledTime >= nextClientMapProbeAt)
             {
-                clientMapLoadPending = false;
-                clientMapReadyAt = Time.unscaledTime + 0.20f;
-                SetStatus("Loaded host map. Synchronising Connect session.");
+                nextClientMapProbeAt = Time.unscaledTime + 0.10f;
+                if (IsRequestedClientMapActuallyLoaded())
+                    MarkClientMapLoaded("map instance probe");
             }
-            else if (Time.unscaledTime >= clientMapLoadDeadline)
+            if (!clientMapLoadPending)
+            {
+                TryActivateClientSession();
+                return;
+            }
+            if (Time.unscaledTime >= clientMapLoadDeadline)
             {
                 clientMapLoadPending = false;
                 clientSessionStartReceived = false;
                 SetStatus("Map synchronisation timed out. The host map is unavailable locally.");
             }
-            else
+            else if (Time.unscaledTime >= nextClientMapLoadAttemptAt)
             {
                 TryBeginClientMapLoad();
             }
@@ -786,8 +810,11 @@ namespace PPGTogether.BepInEx
             clientRequestedMapIdentity = identity;
             clientMapLoadPending = true;
             clientMapLoadIssued = false;
+            clientMapInstanceLoaded = false;
             clientMapLoadDeadline = Time.unscaledTime + 30f;
             clientMapReadyAt = 0f;
+            nextClientMapProbeAt = 0f;
+            nextClientMapLoadAttemptAt = 0f;
             SetStatus(source + " requested host map: " + SafeName(identity));
             Logger.LogInfo("[Connect][Sync] " + source + " map directive received: " + identity + ".");
             TryBeginClientMapLoad();
@@ -802,6 +829,7 @@ namespace PPGTogether.BepInEx
                 return;
             }
             if (clientMapReadyAt > Time.unscaledTime) return;
+            if (!clientMapInstanceLoaded) return;
             string currentMap;
             if (!TryGetCurrentMapIdentity(out currentMap) || !string.Equals(currentMap, clientRequestedMapIdentity, StringComparison.Ordinal)) return;
             sessionActive = true;
@@ -813,14 +841,17 @@ namespace PPGTogether.BepInEx
         private void TryBeginClientMapLoad()
         {
             if (!clientMapLoadPending || string.IsNullOrEmpty(clientRequestedMapIdentity)) return;
-            string currentMap;
-            if (TryGetCurrentMapIdentity(out currentMap) && string.Equals(currentMap, clientRequestedMapIdentity, StringComparison.Ordinal))
+            if (IsRequestedClientMapActuallyLoaded())
             {
-                clientMapLoadPending = false;
-                clientMapReadyAt = Time.unscaledTime + 0.20f;
+                MarkClientMapLoaded("pre-load map instance check");
                 return;
             }
             if (clientMapLoadIssued) return;
+
+            // A missing loader or a menu transition can legitimately take a
+            // moment. Retrying a few times per second avoids Resource scans
+            // and duplicate warning spam in Update.
+            nextClientMapLoadAttemptAt = Time.unscaledTime + 0.25f;
 
             Map map = FindInstalledMap(clientRequestedMapIdentity);
             if (map == null)
@@ -837,12 +868,32 @@ namespace PPGTogether.BepInEx
                 return;
             }
 
+            int childrenBefore = loader.transform == null ? -1 : loader.transform.childCount;
+            // In People Playground 1.27.16 MapLoadOverride is honoured only
+            // in Application.isEditor. Runtime MapLoaderBehaviour.Load()
+            // instantiates its public static CurrentMap instead. Set both so
+            // this remains safe in either context, then use the game's own
+            // loader rather than creating prefabs ourselves.
+            MapLoaderBehaviour.CurrentMap = map;
             loader.MapLoadOverride = map;
             clientMapLoadIssued = true;
-            Logger.LogInfo("[Connect][Sync] Loading host map with MapLoaderBehaviour " + loader.GetInstanceID() + ", target=" + clientRequestedMapIdentity + ".");
-            loader.Load();
             SetStatus("Loading host map: " + SafeName(clientRequestedMapIdentity));
-            Logger.LogInfo("[Connect][Sync] Issued local map load for " + clientRequestedMapIdentity + ".");
+            Logger.LogInfo("[Connect][Sync] Loading host map with MapLoaderBehaviour " + loader.GetInstanceID() + ", target=" + clientRequestedMapIdentity + ", children-before=" + childrenBefore + ". CurrentMap was assigned explicitly for runtime loading.");
+            loader.Load();
+            int childrenAfter = loader.transform == null ? -1 : loader.transform.childCount;
+            Logger.LogInfo("[Connect][Sync] Issued local map load for " + clientRequestedMapIdentity + ". MapLoader children-after=" + childrenAfter + ".");
+            if (clientMapLoadPending && IsRequestedClientMapActuallyLoaded())
+                MarkClientMapLoaded("post-load map instance check");
+        }
+
+        private void MarkClientMapLoaded(string evidence)
+        {
+            if (!clientMapLoadPending) return;
+            clientMapInstanceLoaded = true;
+            clientMapLoadPending = false;
+            clientMapReadyAt = Time.unscaledTime + 0.20f;
+            SetStatus("Loaded host map. Synchronising Connect session.");
+            Logger.LogInfo("[Connect][Sync] Client verified an instantiated host map via " + evidence + ": " + clientRequestedMapIdentity + ".");
         }
 
         private void BeginHostSession(string mapIdentity)
@@ -898,6 +949,28 @@ namespace PPGTogether.BepInEx
                     if (loaders[i].gameObject.activeInHierarchy) return loaders[i];
                 }
             return fallback;
+        }
+
+        private bool IsRequestedClientMapActuallyLoaded()
+        {
+            return IsMapActuallyLoaded(clientRequestedMapIdentity);
+        }
+
+        // MapLoaderBehaviour.CurrentMap is a selection, not a load-complete
+        // signal. MapLoaderBehaviour.Load creates the active map prefab as a
+        // direct child of one of the loader transforms, which is the stable
+        // runtime evidence needed by Connect's client state machine.
+        private static bool IsMapActuallyLoaded(string identity)
+        {
+            string currentMap;
+            if (!IsValidMapIdentity(identity) || !TryGetCurrentMapIdentity(out currentMap) || !string.Equals(currentMap, identity, StringComparison.Ordinal)) return false;
+            MapLoaderBehaviour[] loaders = Resources.FindObjectsOfTypeAll<MapLoaderBehaviour>();
+            for (int i = 0; i < loaders.Length; i++)
+            {
+                MapLoaderBehaviour loader = loaders[i];
+                if (loader != null && loader.transform != null && loader.transform.childCount > 0) return true;
+            }
+            return false;
         }
 
         private static Map FindInstalledMap(string identity)
@@ -1051,7 +1124,10 @@ namespace PPGTogether.BepInEx
         {
             bool uiBusy = menuVisible || (Global.main != null && Global.main.UILock);
             if (Time.unscaledTime < nextCursorAt) return;
-            nextCursorAt = Time.unscaledTime + (uiBusy ? 0.5f : (1f / CursorSendRateHz()));
+            // UI busy is conveyed as an interaction flag only. Throttling the
+            // cursor itself while a player was in the menu made remote cursors
+            // appear frozen at two updates per second.
+            nextCursorAt = Time.unscaledTime + (1f / CursorSendRateHz());
             Vector2 position = GetWorldCursor();
             Vector2 velocity = Vector2.zero;
             if (hasPreviousLocalCursor)
@@ -1519,7 +1595,14 @@ namespace PPGTogether.BepInEx
         private void UpdateCursorInterpolation()
         {
             float t = 1f - Mathf.Exp(-Time.unscaledDeltaTime * CursorSmoothing());
-            foreach (RemoteCursor cursor in cursors.Values) cursor.Render = Vector2.Lerp(cursor.Render, cursor.Target, t);
+            foreach (RemoteCursor cursor in cursors.Values)
+            {
+                // A very short, bounded prediction removes the one-packet
+                // render delay without allowing a stale cursor to drift.
+                float predictionAge = Mathf.Clamp(Time.unscaledTime - cursor.LastAt, 0f, 0.050f);
+                Vector2 desired = cursor.Target + cursor.Velocity * predictionAge;
+                cursor.Render = Vector2.Lerp(cursor.Render, desired, t);
+            }
         }
 
         private void UpdateInteractionInput()
@@ -2055,7 +2138,7 @@ namespace PPGTogether.BepInEx
             botSpawnedItems.Clear();
             ClearBotCursors();
             string mapIdentity;
-            if (TryGetCurrentMapIdentity(out mapIdentity))
+            if (TryGetCurrentMapIdentity(out mapIdentity) && IsMapActuallyLoaded(mapIdentity))
             {
                 BeginHostSession(mapIdentity);
                 return;
@@ -2085,8 +2168,8 @@ namespace PPGTogether.BepInEx
         {
             RestoreHostPhysicsSettings();
             sessionActive = false; clientPeerId = 0; clientGrabId = 0; clientGrabToken = 0;
-            hostStartAwaitingMap = false; clientSessionStartReceived = false; clientMapLoadPending = false; clientMapLoadIssued = false;
-            clientMapLoadDeadline = 0f; clientMapReadyAt = 0f; clientRequestedMapIdentity = string.Empty; activeMapIdentity = string.Empty;
+            hostStartAwaitingMap = false; clientSessionStartReceived = false; clientMapLoadPending = false; clientMapLoadIssued = false; clientMapInstanceLoaded = false;
+            clientMapLoadDeadline = 0f; clientMapReadyAt = 0f; nextClientMapProbeAt = 0f; nextClientMapLoadAttemptAt = 0f; clientRequestedMapIdentity = string.Empty; activeMapIdentity = string.Empty;
             botsEnabled = false; botSpawnCount = 0; ReleaseBots(); bots.Clear(); botSpawnedItems.Clear();
             grabs.Clear(); continuousActivations.Clear(); clientHeldActivationRoots.Clear(); registry.Clear(); peers.Clear(); cursors.Clear(); avatars.Clear(); guestSpawnWindows.Clear(); guestInteractionWindows.Clear(); remoteHostSettings = new HostSettingsView();
             if (transport != null) transport.Close();
@@ -2212,9 +2295,9 @@ namespace PPGTogether.BepInEx
         private int GuestSpawnLimitPerMinute() { return Mathf.Clamp(hostGuestSpawnLimitSetting.Value, 1, 60); }
         private int GuestInteractionLimitPerMinute() { return Mathf.Clamp(hostGuestInteractionLimitSetting.Value, 5, 120); }
         private int BotSpawnLimit() { return Mathf.Clamp(hostBotSpawnLimitSetting.Value, 0, 100); }
-        private int CursorSendRateHz() { return Mathf.Clamp(playerCursorSendRateSetting.Value, 15, 45); }
+        private int CursorSendRateHz() { return Mathf.Clamp(playerCursorSendRateSetting.Value, 60, 120); }
         private float CursorScale() { return Mathf.Clamp(playerCursorScaleSetting.Value, 0.60f, 1.80f); }
-        private float CursorSmoothing() { return Mathf.Clamp(playerCursorSmoothingSetting.Value, 4f, 24f); }
+        private float CursorSmoothing() { return Mathf.Clamp(playerCursorSmoothingSetting.Value, 8f, 48f); }
         private static int ClampHostCapacity(int value) { return Mathf.Clamp(value, 2, 8); }
 
         private static LobbyPrivacy ReadPrivacy(string value)
@@ -2399,11 +2482,11 @@ namespace PPGTogether.BepInEx
             if (updatedScale != scale) { playerCursorScaleSetting.Value = updatedScale / 100f; SaveSettings(); }
             row += 27f;
             int smoothing = Mathf.RoundToInt(CursorSmoothing());
-            int updatedSmoothing = DrawSettingStepper("player-smoothing", new Rect(x + 14f, row, width - 28f, 23f), "Cursor smoothing", smoothing, 4, 24, string.Empty);
+            int updatedSmoothing = DrawSettingStepper("player-smoothing", new Rect(x + 14f, row, width - 28f, 23f), "Cursor smoothing", smoothing, 8, 48, string.Empty);
             if (updatedSmoothing != smoothing) { playerCursorSmoothingSetting.Value = updatedSmoothing; SaveSettings(); }
             row += 27f;
             int sendRate = CursorSendRateHz();
-            int updatedSendRate = DrawSettingStepper("player-cursor-rate", new Rect(x + 14f, row, width - 28f, 23f), "Cursor send rate", sendRate, 15, 45, " Hz");
+            int updatedSendRate = DrawSettingStepper("player-cursor-rate", new Rect(x + 14f, row, width - 28f, 23f), "Cursor send rate", sendRate, 60, 120, " Hz");
             if (updatedSendRate != sendRate) { playerCursorSendRateSetting.Value = updatedSendRate; SaveSettings(); }
         }
 

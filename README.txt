@@ -1,4 +1,4 @@
-Connect — BepInEx edition v0.1.33
+Connect — BepInEx edition v0.1.34
 ===============================
 
 Connect adds a host-authoritative Steam Relay session to People Playground.
@@ -18,8 +18,8 @@ Installation
 
 1. Fully close People Playground.
 2. Download the complete package from
-   `https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.33.zip`.
-   Extract the entire **Connect-v0.1.33.zip** directly into the folder that
+   `https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.34.zip`.
+   Extract the entire **Connect-v0.1.34.zip** directly into the folder that
    contains `People Playground.exe`, and allow Windows to merge the supplied
    `BepInEx` folder. The release already contains BepInEx 5 Unity.Mono-win-x64,
    `winhttp.dll`, `doorstop_config.ini`, the Connect DLL and its icon.
@@ -87,8 +87,9 @@ Host a session
 3. Press a [ + ] Invite Friend row. This opens Steam's own lobby-invite chooser.
 4. Once a friend is connected, press **START & SYNC MAP**. If you are still in
    the title lobby, choose a People Playground map next; connected guests load
-   that same installed map automatically. If you already opened a map, it is
-   sent immediately.
+   that same installed map automatically. The host entering a map with guests
+   also starts this map-follow path, so it does not depend on a stale title-menu
+   map selection.
 5. The session host is the physics authority.
 
 Join a friend
