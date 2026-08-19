@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.33 — Relay receive-path repair and transport trace
+
+- Fixed the actual Steam relay receive-path defect: Connect now calls the
+  Facepunch `SocketManager.OnConnected` base handler after accepting a guest.
+  That assigns the guest connection to the socket poll group, allowing host
+  `Receive()` to receive `Hello`, cursor and map packets.
+- Added focused diagnostic records for relay connection identity, accept/send
+  results, Hello validation, packet rejection and map-loader decisions. Cursor
+  and snapshot updates remain rate-limited and are not written one-by-one.
+
 ## 0.1.32 — Relay cursor and map-follow reliability
 
 - Render remote cursors through People Playground's actual `Global.main.camera`

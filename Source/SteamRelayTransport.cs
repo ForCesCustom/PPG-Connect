@@ -36,7 +36,7 @@ namespace PPGTogether.BepInEx
             socket = SteamNetworkingSockets.CreateRelaySocket<HostSocket>(0);
             socket.Owner = this;
             hosting = true;
-            plugin.LogTransport("Steam relay listen socket opened.");
+            plugin.LogTransport("Steam relay listen socket opened on virtual port 0.");
         }
 
         internal void ConnectToHost(SteamId hostSteamId)
@@ -45,7 +45,7 @@ namespace PPGTogether.BepInEx
             client = SteamNetworkingSockets.ConnectRelay<ClientConnection>(hostSteamId, 0);
             client.Owner = this;
             hosting = false;
-            plugin.LogTransport("Connecting to host through Steam relay.");
+            plugin.LogTransport("Connecting to host through Steam relay (connection " + client.Connection.Id + ", host " + (ulong)hostSteamId + ").");
         }
 
         internal void Pump()
@@ -74,14 +74,18 @@ namespace PPGTogether.BepInEx
         {
             if (connection.Id == 0 || bytes == null)
                 return;
-            connection.SendMessage(bytes, reliable ? SendType.Reliable : SendType.Unreliable, 0);
+            Result result = connection.SendMessage(bytes, reliable ? SendType.Reliable : SendType.Unreliable, 0);
+            if (result != Result.OK)
+                plugin.LogTransport("Relay send to client " + connection.Id + " failed: " + result + ".");
         }
 
         internal void SendToHost(byte[] bytes, bool reliable)
         {
             if (client == null || client.Connection.Id == 0 || bytes == null)
                 return;
-            client.Connection.SendMessage(bytes, reliable ? SendType.Reliable : SendType.Unreliable, 0);
+            Result result = client.Connection.SendMessage(bytes, reliable ? SendType.Reliable : SendType.Unreliable, 0);
+            if (result != Result.OK)
+                plugin.LogTransport("Relay send to host " + client.Connection.Id + " failed: " + result + ".");
         }
 
         internal void Close()
@@ -107,11 +111,11 @@ namespace PPGTogether.BepInEx
             if (!info.Identity.IsSteamId || !plugin.IsLobbyMember(steamId))
             {
                 connection.Close(false, 4001, "Not a member of the active Connect lobby");
-                plugin.LogTransport("Rejected non-lobby Steam relay connection.");
+                plugin.LogTransport("Rejected relay connection " + connection.Id + ": identity=" + (ulong)steamId + ", isSteamId=" + info.Identity.IsSteamId + ", lobbyMember=" + plugin.IsLobbyMember(steamId) + ".");
                 return;
             }
-            connection.Accept();
-            plugin.LogTransport("Accepted Steam relay connection from lobby member.");
+            Result result = connection.Accept();
+            plugin.LogTransport("Accepted relay connection " + connection.Id + " from lobby member " + (ulong)steamId + "; Accept=" + result + ".");
         }
 
         internal void Enqueue(Connection connection, SteamId steamId, IntPtr data, int size)
@@ -124,6 +128,8 @@ namespace PPGTogether.BepInEx
             {
                 if (received.Count < 256)
                     received.Enqueue(new ReceivedPacket { Connection = connection, SteamId = (ulong)steamId, Data = copy });
+                else
+                    plugin.LogTransport("Dropped relay packet because the incoming queue is full.");
             }
         }
 
@@ -138,17 +144,30 @@ namespace PPGTogether.BepInEx
 
             public override void OnConnected(Connection connection, ConnectionInfo info)
             {
-                if (Owner != null) Owner.plugin.LogTransport("Relay client connected.");
+                // SocketManager.OnConnected assigns the connection to its poll group.
+                // Without this base call SocketManager.Receive() can never see client
+                // messages: the lobby join succeeds but Hello/cursor/map packets vanish.
+                base.OnConnected(connection, info);
+                if (Owner != null) Owner.plugin.LogTransport("Relay client connected: connection=" + connection.Id + ", identity=" + (ulong)info.Identity.SteamId + ".");
             }
 
             public override void OnDisconnected(Connection connection, ConnectionInfo info)
             {
-                if (Owner != null) Owner.plugin.OnTransportDisconnected((ulong)info.Identity.SteamId);
+                if (Owner != null)
+                {
+                    Owner.plugin.LogTransport("Relay client disconnected: connection=" + connection.Id + ", identity=" + (ulong)info.Identity.SteamId + ", state=" + info.State + ", reason=" + info.EndReason + ".");
+                    Owner.plugin.OnTransportDisconnected((ulong)info.Identity.SteamId);
+                }
             }
 
             public override void OnMessage(Connection connection, NetIdentity identity, IntPtr data, int size, long messageNum, long recvTime, int channel)
             {
-                if (Owner != null) Owner.Enqueue(connection, identity.SteamId, data, size);
+                if (Owner != null)
+                {
+                    if (!identity.IsSteamId)
+                        Owner.plugin.LogTransport("Received relay message with a non-Steam identity on connection " + connection.Id + ".");
+                    Owner.Enqueue(connection, identity.SteamId, data, size);
+                }
             }
         }
 
@@ -158,12 +177,20 @@ namespace PPGTogether.BepInEx
 
             public override void OnConnected(ConnectionInfo info)
             {
-                if (Owner != null) Owner.plugin.OnRelayClientConnected((ulong)info.Identity.SteamId);
+                if (Owner != null)
+                {
+                    Owner.plugin.LogTransport("Relay client-side connection established: connection=" + Connection.Id + ", host=" + (ulong)info.Identity.SteamId + ".");
+                    Owner.plugin.OnRelayClientConnected((ulong)info.Identity.SteamId);
+                }
             }
 
             public override void OnDisconnected(ConnectionInfo info)
             {
-                if (Owner != null) Owner.plugin.OnHostTransportDisconnected();
+                if (Owner != null)
+                {
+                    Owner.plugin.LogTransport("Relay host connection disconnected: connection=" + Connection.Id + ", state=" + info.State + ", reason=" + info.EndReason + ".");
+                    Owner.plugin.OnHostTransportDisconnected();
+                }
             }
 
             public override void OnMessage(IntPtr data, int size, long messageNum, long recvTime, int channel)

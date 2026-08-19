@@ -45,7 +45,7 @@ namespace PPGTogether.BepInEx
     {
         // Canonical direct download for the complete plug-and-play package.
         // It is maintained with every public Connect update.
-        internal const string PublishedReleaseUrl = "https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.32.zip";
+        internal const string PublishedReleaseUrl = "https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.33.zip";
         internal const string BepInExInstallGuideUrl = "https://docs.bepinex.dev/master/articles/user_guide/installation/unity_mono.html?tabs=tabid-win";
 
         internal static bool IsSafeGitHubUrl(string value)

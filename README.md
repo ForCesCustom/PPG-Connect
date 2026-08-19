@@ -2,7 +2,7 @@
 
 [Русская версия](#русская-версия) · [English](#english)
 
-> Current package: **v0.1.32** · protocol **v4** · People Playground **1.27.16**
+> Current package: **v0.1.33** · protocol **v4** · People Playground **1.27.16**
 
 ## English
 
@@ -15,7 +15,7 @@ addresses.
 
 Download the complete plug-and-play ZIP:
 
-**[Connect-v0.1.32.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.32.zip)**
+**[Connect-v0.1.33.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.33.zip)**
 
 1. Close People Playground.
 2. Extract the full ZIP into the folder containing `People Playground.exe`.
@@ -43,6 +43,10 @@ The same direct URL is printed in the game notice.
   same locally installed map automatically.
 - Steam relay transport carries the handshake, cursor updates and approved game
   actions.
+- Version 0.1.33 fixes the host relay poll-group registration that previously
+  let a lobby connection appear accepted while `Hello`, cursor and map packets
+  were never received. Focused relay and map diagnostics are written to
+  `BepInEx\\LogOutput.log`.
 - Every player has a separate world-space cursor, local camera, zoom, Tab
   catalog, right-click selection and context UI.
 - The host remains authoritative for shared physics. Clients submit intents;
@@ -100,7 +104,7 @@ Steam-клиент, не открывает порты и не передаёт 
 
 Скачай полный plug-and-play архив:
 
-**[Connect-v0.1.32.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.32.zip)**
+**[Connect-v0.1.33.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.33.zip)**
 
 1. Полностью закрой People Playground.
 2. Распакуй весь ZIP в папку, где лежит `People Playground.exe`.
@@ -126,6 +130,10 @@ BepInEx runtime, он увидит нативное окно People Playground �
   После старта хоста и выбора карты они автоматически загружают ту же локально
   установленную карту.
 - Steam Relay передаёт handshake, курсоры и подтверждённые игровые действия.
+- В версии 0.1.33 исправлена регистрация соединения в host poll group: раньше
+  лобби могло выглядеть подключённым, но хост не принимал `Hello`, курсоры и
+  команду карты. Подробный relay/map журнал находится в
+  `BepInEx\\LogOutput.log`.
 - У каждого игрока независимые мировой курсор, камера, zoom, Tab-каталог,
   выделение и ПКМ-меню.
 - Общая физика авторитетна у хоста. Клиенты отправляют намерения; хост их

@@ -21,7 +21,7 @@ namespace PPGTogether.BepInEx
         internal const string PluginGuid = "local.ppgtogether.steam";
         // Keep the GUID stable so this is a seamless update for existing users.
         internal const string PluginName = "Connect";
-        internal const string PluginVersion = "0.1.32";
+        internal const string PluginVersion = "0.1.33";
         internal const string ExpectedGameVersion = "1.27.16";
         internal const string RuntimeMarkerName = "Connect.RuntimeMarker";
         internal const string RuntimeVersionMarkerName = "Connect.RuntimeVersion." + PluginVersion;
@@ -494,9 +494,11 @@ namespace PPGTogether.BepInEx
 
         internal void OnRelayClientConnected(ulong hostSteamId)
         {
+            Logger.LogInfo("[Connect][Transport] Validating relay host identity " + hostSteamId + " against lobby owner.");
             if (!lobby.HasValue || (ulong)lobby.Value.Owner.Id != hostSteamId)
             {
                 SetStatus("Relay identity does not match current lobby owner.");
+                Logger.LogWarning("[Connect][Transport] Relay host identity validation failed. Lobby owner=" + (lobby.HasValue ? ((ulong)lobby.Value.Owner.Id).ToString() : "none") + ", relay host=" + hostSteamId + ".");
                 transport.Close();
                 return;
             }
@@ -542,7 +544,11 @@ namespace PPGTogether.BepInEx
 
         private void SendHello()
         {
-            if (!lobby.HasValue) return;
+            if (!lobby.HasValue)
+            {
+                Logger.LogWarning("[Connect][Transport] Cannot send Hello: no active Steam lobby.");
+                return;
+            }
             Writer writer = new Writer(128);
             writer.UShort(Wire.ProtocolVersion);
             writer.String(PluginVersion);
@@ -551,7 +557,7 @@ namespace PPGTogether.BepInEx
             writer.ULong((ulong)lobby.Value.Id);
             writer.ULong(nonce);
             SendToHost(WireMessage.Hello, WireChannel.Control, writer.ToArray(), true);
-            Logger.LogInfo("[Connect][Transport] Sent relay handshake to lobby host.");
+            Logger.LogInfo("[Connect][Transport] Sent Hello: local=" + (ulong)SteamClient.SteamId + ", lobby=" + (ulong)lobby.Value.Id + ", nonce=" + nonce + ", protocol=" + Wire.ProtocolVersion + ".");
         }
 
         private void ProcessReceivedPackets()
@@ -561,8 +567,18 @@ namespace PPGTogether.BepInEx
             while (processed++ < 64 && transport.TryDequeue(out packet))
             {
                 Envelope envelope;
-                if (!Wire.TryUnpack(packet.Data, out envelope) || envelope.Nonce != nonce)
+                if (!Wire.TryUnpack(packet.Data, out envelope))
+                {
+                    Logger.LogWarning("[Connect][Protocol] Dropped invalid relay packet: sender=" + packet.SteamId + ", connection=" + packet.Connection.Id + ", bytes=" + (packet.Data == null ? 0 : packet.Data.Length) + ".");
                     continue;
+                }
+                if (envelope.Nonce != nonce)
+                {
+                    Logger.LogWarning("[Connect][Protocol] Dropped stale relay packet " + envelope.Type + ": sender=" + packet.SteamId + ", packet nonce=" + envelope.Nonce + ", active nonce=" + nonce + ".");
+                    continue;
+                }
+                if (envelope.Type != WireMessage.Cursor && envelope.Type != WireMessage.Snapshot && envelope.Type != WireMessage.GrabUpdate)
+                    Logger.LogInfo("[Connect][Protocol] Received " + envelope.Type + " from " + packet.SteamId + " on connection " + packet.Connection.Id + ", peer=" + envelope.PeerId + ", bytes=" + envelope.Payload.Length + ".");
                 HandlePacket(packet, envelope);
             }
         }
@@ -589,6 +605,7 @@ namespace PPGTogether.BepInEx
             if (envelope.Type == WireMessage.Spawn && !IsHost) { HandleSpawn(envelope); return; }
             if (envelope.Type == WireMessage.Despawn && !IsHost) { HandleDespawn(envelope); return; }
             if (envelope.Type == WireMessage.InteractionRequest && IsHost) { HandleInteractionRequest(packet, envelope); return; }
+            Logger.LogWarning("[Connect][Protocol] Ignored " + envelope.Type + " for role " + (IsHost ? "HOST" : "CLIENT") + ".");
         }
 
         private void HandleHello(ReceivedPacket packet, Envelope envelope)
@@ -597,6 +614,7 @@ namespace PPGTogether.BepInEx
             ushort protocol; string modVersion; string gameVersion; ulong claimedSteam; ulong lobbyId; ulong suppliedNonce;
             if (!reader.UShort(out protocol) || !reader.String(out modVersion) || !reader.String(out gameVersion) || !reader.ULong(out claimedSteam) || !reader.ULong(out lobbyId) || !reader.ULong(out suppliedNonce) || reader.Remaining != 0)
             {
+                Logger.LogWarning("[Connect][Transport] Rejected Hello from " + packet.SteamId + ": malformed payload.");
                 SendReject(packet.Connection, "Invalid handshake payload"); return;
             }
             if (protocol != Wire.ProtocolVersion) { Logger.LogWarning("[Connect][Transport] Rejected client with protocol " + protocol + "; host requires " + Wire.ProtocolVersion + "."); SendReject(packet.Connection, "Wrong protocol version"); return; }
@@ -604,12 +622,13 @@ namespace PPGTogether.BepInEx
             if (gameVersion != ExpectedGameVersion) { Logger.LogWarning("[Connect][Transport] Rejected client with People Playground " + SafeName(gameVersion) + "."); SendReject(packet.Connection, "Wrong People Playground version"); return; }
             if (!lobby.HasValue || claimedSteam != packet.SteamId || lobbyId != (ulong)lobby.Value.Id || suppliedNonce != nonce || !IsLobbyMember((SteamId)claimedSteam))
             {
+                Logger.LogWarning("[Connect][Transport] Rejected Hello identity: transport=" + packet.SteamId + ", claimed=" + claimedSteam + ", lobby=" + lobbyId + ", activeLobby=" + (lobby.HasValue ? ((ulong)lobby.Value.Id).ToString() : "none") + ", nonce=" + suppliedNonce + ".");
                 SendReject(packet.Connection, "Steam identity is not a member of this lobby"); return;
             }
             Peer peer;
             if (!peers.TryGetValue(packet.SteamId, out peer))
             {
-                if (peers.Count + 1 >= maxPlayers) { SendReject(packet.Connection, "Lobby is full"); return; }
+                if (peers.Count + 1 >= maxPlayers) { Logger.LogWarning("[Connect][Transport] Rejected Hello from " + packet.SteamId + ": Connect lobby capacity reached."); SendReject(packet.Connection, "Lobby is full"); return; }
                 peer = new Peer { SteamId = packet.SteamId, PeerId = nextPeerId++, Connection = packet.Connection, Name = SafeName(new Friend((SteamId)packet.SteamId).Name) };
                 peers.Add(packet.SteamId, peer);
             }
@@ -677,7 +696,12 @@ namespace PPGTogether.BepInEx
         internal void OnLocalMapLoaded(MapLoaderBehaviour loader)
         {
             string identity;
-            if (!TryGetMapIdentity(loader == null ? null : (MapLoaderBehaviour.CurrentMap ?? loader.MapLoadOverride), out identity)) return;
+            if (!TryGetMapIdentity(loader == null ? null : (MapLoaderBehaviour.CurrentMap ?? loader.MapLoadOverride), out identity))
+            {
+                Logger.LogWarning("[Connect][Sync] MapLoaderBehaviour.Load completed, but Connect could not read a valid map identity yet.");
+                return;
+            }
+            Logger.LogInfo("[Connect][Sync] Local map loader completed: " + identity + ", role=" + (IsHost ? "HOST" : "CLIENT") + ".");
 
             if (IsHost && lobby.HasValue)
             {
@@ -707,6 +731,12 @@ namespace PPGTogether.BepInEx
             }
 
             if (IsHost) return;
+            // Steam may deliver a lobby data callback before the gameplay
+            // scene's MapLoaderBehaviour exists. Re-read the tiny map
+            // directive while joining so a valid host map can never be lost
+            // solely because of callback timing.
+            if (lobby.HasValue && !sessionActive && !clientMapLoadPending)
+                ApplyLobbyMapDirective(lobby.Value);
             if (!clientMapLoadPending)
             {
                 TryActivateClientSession();
@@ -742,7 +772,10 @@ namespace PPGTogether.BepInEx
             string state = source.GetData("ppgt_state");
             string identity = source.GetData("ppgt_map_id");
             if ((state == "loading" || state == "playing") && IsValidMapIdentity(identity))
+            {
+                Logger.LogInfo("[Connect][Sync] Lobby map directive: state=" + state + ", map=" + identity + ".");
                 QueueClientMapLoad(identity, "Steam Lobby");
+            }
         }
 
         private void QueueClientMapLoad(string identity, string source)
@@ -793,17 +826,20 @@ namespace PPGTogether.BepInEx
             if (map == null)
             {
                 SetStatus("Waiting for local map: " + SafeName(clientRequestedMapIdentity));
+                Logger.LogWarning("[Connect][Sync] Map " + clientRequestedMapIdentity + " is not in the local installed catalogue yet.");
                 return;
             }
             MapLoaderBehaviour loader = FindMapLoader();
             if (loader == null)
             {
                 SetStatus("Waiting for People Playground map loader.");
+                Logger.LogWarning("[Connect][Sync] Cannot load host map yet: no MapLoaderBehaviour was found.");
                 return;
             }
 
             loader.MapLoadOverride = map;
             clientMapLoadIssued = true;
+            Logger.LogInfo("[Connect][Sync] Loading host map with MapLoaderBehaviour " + loader.GetInstanceID() + ", target=" + clientRequestedMapIdentity + ".");
             loader.Load();
             SetStatus("Loading host map: " + SafeName(clientRequestedMapIdentity));
             Logger.LogInfo("[Connect][Sync] Issued local map load for " + clientRequestedMapIdentity + ".");
@@ -822,6 +858,7 @@ namespace PPGTogether.BepInEx
             BroadcastHostSettings();
             lobby.Value.SetData("ppgt_state", "playing");
             SendImmediateCursor();
+            Logger.LogInfo("[Connect][Sync] Host session start broadcast: map=" + mapIdentity + ", connected peers=" + peers.Count + ".");
             SetStatus("Session started. Loading " + SafeName(mapIdentity) + " for every connected player.");
         }
 
