@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.32 — Relay cursor and map-follow reliability
+
+- Render remote cursors through People Playground's actual `Global.main.camera`
+  instead of relying on an optional Unity `MainCamera` tag.
+- Show a clearly labelled `SYNCING` cursor when a Steam lobby member arrives;
+  replace it with the real independent world-space cursor after relay handshake.
+- Mirror the compact map directive in Steam Lobby metadata as a fallback to the
+  reliable relay command, so guests follow an already-selected host map even
+  when they complete their handshake after the host starts.
+
 ## 0.1.31 — Runtime version mismatch detection
 
 - Added a versioned runtime marker shared between the BepInEx plugin and the

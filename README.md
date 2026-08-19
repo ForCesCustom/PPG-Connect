@@ -2,7 +2,7 @@
 
 [Русская версия](#русская-версия) · [English](#english)
 
-> Current package: **v0.1.31** · protocol **v4** · People Playground **1.27.16**
+> Current package: **v0.1.32** · protocol **v4** · People Playground **1.27.16**
 
 ## English
 
@@ -15,7 +15,7 @@ addresses.
 
 Download the complete plug-and-play ZIP:
 
-**[Connect-v0.1.31.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.31.zip)**
+**[Connect-v0.1.32.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.32.zip)**
 
 1. Close People Playground.
 2. Extract the full ZIP into the folder containing `People Playground.exe`.
@@ -100,7 +100,7 @@ Steam-клиент, не открывает порты и не передаёт 
 
 Скачай полный plug-and-play архив:
 
-**[Connect-v0.1.31.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.31.zip)**
+**[Connect-v0.1.32.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.32.zip)**
 
 1. Полностью закрой People Playground.
 2. Распакуй весь ZIP в папку, где лежит `People Playground.exe`.

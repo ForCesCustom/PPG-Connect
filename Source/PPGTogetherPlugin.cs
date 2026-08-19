@@ -21,7 +21,7 @@ namespace PPGTogether.BepInEx
         internal const string PluginGuid = "local.ppgtogether.steam";
         // Keep the GUID stable so this is a seamless update for existing users.
         internal const string PluginName = "Connect";
-        internal const string PluginVersion = "0.1.31";
+        internal const string PluginVersion = "0.1.32";
         internal const string ExpectedGameVersion = "1.27.16";
         internal const string RuntimeMarkerName = "Connect.RuntimeMarker";
         internal const string RuntimeVersionMarkerName = "Connect.RuntimeVersion." + PluginVersion;
@@ -412,6 +412,7 @@ namespace PPGTogether.BepInEx
                 Lobby? joined = await SteamMatchmaking.JoinLobbyAsync(lobbyId);
                 if (!joined.HasValue) { SetStatus("Steam refused the lobby join."); return; }
                 lobby = joined.Value;
+                EnsureLobbyPresenceCursors();
                 string rawNonce = lobby.Value.GetData("ppgt_session_nonce");
                 ulong parsed;
                 if (!ulong.TryParse(rawNonce, out parsed) || parsed == 0)
@@ -429,6 +430,7 @@ namespace PPGTogether.BepInEx
                 }
                 else
                 {
+                    ApplyLobbyMapDirective(lobby.Value);
                     transport.ConnectToHost(host);
                     SetStatus("Joined lobby; connecting to host through Steam Relay.");
                 }
@@ -451,6 +453,7 @@ namespace PPGTogether.BepInEx
             if (!lobby.HasValue || changed.Id != lobby.Value.Id) return;
             lobby = changed;
             string state = changed.GetData("ppgt_state");
+            if (!IsHost) ApplyLobbyMapDirective(changed);
             if (!IsHost && state == "playing" && transport.Connected)
                 SetStatus("Host session is running; awaiting welcome.");
             else if (!IsHost && state == "loading")
@@ -460,13 +463,19 @@ namespace PPGTogether.BepInEx
         private void OnLobbyMemberJoined(Lobby changed, Friend member)
         {
             if (lobby.HasValue && changed.Id == lobby.Value.Id)
+            {
+                EnsureLobbyPresenceCursor(member);
                 SetStatus(SafeName(member.Name) + " joined the lobby.");
+            }
         }
 
         private void OnLobbyMemberLeave(Lobby changed, Friend member)
         {
             if (lobby.HasValue && changed.Id == lobby.Value.Id)
+            {
+                RemoveCursorsForSteam((ulong)member.Id);
                 SetStatus(SafeName(member.Name) + " left the lobby.");
+            }
         }
 
         private void OnSteamShutdown()
@@ -542,6 +551,7 @@ namespace PPGTogether.BepInEx
             writer.ULong((ulong)lobby.Value.Id);
             writer.ULong(nonce);
             SendToHost(WireMessage.Hello, WireChannel.Control, writer.ToArray(), true);
+            Logger.LogInfo("[Connect][Transport] Sent relay handshake to lobby host.");
         }
 
         private void ProcessReceivedPackets()
@@ -589,9 +599,9 @@ namespace PPGTogether.BepInEx
             {
                 SendReject(packet.Connection, "Invalid handshake payload"); return;
             }
-            if (protocol != Wire.ProtocolVersion) { SendReject(packet.Connection, "Wrong protocol version"); return; }
-            if (modVersion != PluginVersion) { SendReject(packet.Connection, "Wrong Connect version"); return; }
-            if (gameVersion != ExpectedGameVersion) { SendReject(packet.Connection, "Wrong People Playground version"); return; }
+            if (protocol != Wire.ProtocolVersion) { Logger.LogWarning("[Connect][Transport] Rejected client with protocol " + protocol + "; host requires " + Wire.ProtocolVersion + "."); SendReject(packet.Connection, "Wrong protocol version"); return; }
+            if (modVersion != PluginVersion) { Logger.LogWarning("[Connect][Transport] Rejected client with Connect " + SafeName(modVersion) + "; host requires " + PluginVersion + "."); SendReject(packet.Connection, "Wrong Connect version"); return; }
+            if (gameVersion != ExpectedGameVersion) { Logger.LogWarning("[Connect][Transport] Rejected client with People Playground " + SafeName(gameVersion) + "."); SendReject(packet.Connection, "Wrong People Playground version"); return; }
             if (!lobby.HasValue || claimedSteam != packet.SteamId || lobbyId != (ulong)lobby.Value.Id || suppliedNonce != nonce || !IsLobbyMember((SteamId)claimedSteam))
             {
                 SendReject(packet.Connection, "Steam identity is not a member of this lobby"); return;
@@ -604,6 +614,7 @@ namespace PPGTogether.BepInEx
                 peers.Add(packet.SteamId, peer);
             }
             else peer.Connection = packet.Connection;
+            RemoveCursorsForSteam(packet.SteamId);
             Writer response = new Writer(16);
             response.UShort(peer.PeerId);
             response.ULong((ulong)SteamClient.SteamId);
@@ -619,6 +630,7 @@ namespace PPGTogether.BepInEx
             }
             if (sessionActive && botsEnabled) SendBotMode(packet.Connection, peer.PeerId, true, botCount);
             SendHostSettings(packet.Connection, peer.PeerId);
+            Logger.LogInfo("[Connect][Transport] Relay handshake complete for " + peer.Name + " (peer " + peer.PeerId + ").");
             SetStatus(peer.Name + " connected through Steam Relay.");
         }
 
@@ -629,8 +641,10 @@ namespace PPGTogether.BepInEx
             if (!reader.UShort(out clientPeerId) || !reader.ULong(out host) || !reader.Bool(out active) || reader.Remaining != 0) { SetStatus("Invalid host welcome."); return; }
             sessionActive = false;
             clientSessionStartReceived = active;
+            EnsureLobbyPresenceCursors();
             SetStatus(active ? "Connected; waiting for the host map command." : "Connected; waiting for host to start session.");
             SendImmediateCursor();
+            Logger.LogInfo("[Connect][Transport] Relay welcome received as peer " + clientPeerId + ".");
         }
 
         private void HandleSessionStarted()
@@ -654,13 +668,7 @@ namespace PPGTogether.BepInEx
                 return;
             }
 
-            sessionActive = false;
-            clientRequestedMapIdentity = identity;
-            clientMapLoadPending = true;
-            clientMapLoadIssued = false;
-            clientMapLoadDeadline = Time.unscaledTime + 20f;
-            clientMapReadyAt = 0f;
-            TryBeginClientMapLoad();
+            QueueClientMapLoad(identity, "Steam Relay");
         }
 
         // Called by the narrow MapLoaderBehaviour Harmony postfix.  The host
@@ -725,6 +733,33 @@ namespace PPGTogether.BepInEx
             TryActivateClientSession();
         }
 
+        // Lobby metadata is only a compact map directive. It is never used for
+        // cursors, physics, objects or other gameplay state. It closes the
+        // race where the host selects a map just before relay handshake ends.
+        private void ApplyLobbyMapDirective(Lobby source)
+        {
+            if (IsHost) return;
+            string state = source.GetData("ppgt_state");
+            string identity = source.GetData("ppgt_map_id");
+            if ((state == "loading" || state == "playing") && IsValidMapIdentity(identity))
+                QueueClientMapLoad(identity, "Steam Lobby");
+        }
+
+        private void QueueClientMapLoad(string identity, string source)
+        {
+            if (IsHost || !IsValidMapIdentity(identity)) return;
+            if (sessionActive && string.Equals(activeMapIdentity, identity, StringComparison.Ordinal)) return;
+            if (clientMapLoadPending && string.Equals(clientRequestedMapIdentity, identity, StringComparison.Ordinal)) return;
+            clientRequestedMapIdentity = identity;
+            clientMapLoadPending = true;
+            clientMapLoadIssued = false;
+            clientMapLoadDeadline = Time.unscaledTime + 30f;
+            clientMapReadyAt = 0f;
+            SetStatus(source + " requested host map: " + SafeName(identity));
+            Logger.LogInfo("[Connect][Sync] " + source + " map directive received: " + identity + ".");
+            TryBeginClientMapLoad();
+        }
+
         private void TryActivateClientSession()
         {
             if (IsHost || sessionActive || !clientSessionStartReceived || clientMapLoadPending) return;
@@ -771,6 +806,7 @@ namespace PPGTogether.BepInEx
             clientMapLoadIssued = true;
             loader.Load();
             SetStatus("Loading host map: " + SafeName(clientRequestedMapIdentity));
+            Logger.LogInfo("[Connect][Sync] Issued local map load for " + clientRequestedMapIdentity + ".");
         }
 
         private void BeginHostSession(string mapIdentity)
@@ -779,11 +815,12 @@ namespace PPGTogether.BepInEx
             hostStartAwaitingMap = false;
             sessionActive = true;
             activeMapIdentity = mapIdentity;
-            lobby.Value.SetData("ppgt_state", "playing");
+            lobby.Value.SetData("ppgt_state", "loading");
             lobby.Value.SetData("ppgt_map_id", mapIdentity);
             BroadcastMapLoad(mapIdentity);
             Broadcast(WireMessage.SessionStarted, WireChannel.Control, new byte[0], true);
             BroadcastHostSettings();
+            lobby.Value.SetData("ppgt_state", "playing");
             SendImmediateCursor();
             SetStatus("Session started. Loading " + SafeName(mapIdentity) + " for every connected player.");
         }
@@ -816,10 +853,14 @@ namespace PPGTogether.BepInEx
         private static MapLoaderBehaviour FindMapLoader()
         {
             MapLoaderBehaviour[] loaders = Resources.FindObjectsOfTypeAll<MapLoaderBehaviour>();
+            MapLoaderBehaviour fallback = null;
             for (int i = 0; i < loaders.Length; i++)
-                if (loaders[i] != null && loaders[i].gameObject != null && loaders[i].gameObject.activeInHierarchy)
-                    return loaders[i];
-            return null;
+                if (loaders[i] != null && loaders[i].gameObject != null)
+                {
+                    if (fallback == null) fallback = loaders[i];
+                    if (loaders[i].gameObject.activeInHierarchy) return loaders[i];
+                }
+            return fallback;
         }
 
         private static Map FindInstalledMap(string identity)
@@ -844,10 +885,7 @@ namespace PPGTogether.BepInEx
         private static bool TryGetCurrentMapIdentity(out string identity)
         {
             identity = string.Empty;
-            MapLoaderBehaviour[] loaders = Resources.FindObjectsOfTypeAll<MapLoaderBehaviour>();
             if (TryGetMapIdentity(MapLoaderBehaviour.CurrentMap, out identity)) return true;
-            for (int i = 0; i < loaders.Length; i++)
-                if (loaders[i] != null && TryGetMapIdentity(loaders[i].MapLoadOverride, out identity)) return true;
             return false;
         }
 
@@ -903,6 +941,66 @@ namespace PPGTogether.BepInEx
                 IsBot = isBot
             };
             cursors.Add(peerId, cursor);
+        }
+
+        // A lobby member gets a clearly marked provisional cursor immediately.
+        // It is replaced by the real world-space cursor as soon as the relay
+        // handshake supplies an assigned peer id and the first cursor packet.
+        private void EnsureLobbyPresenceCursors()
+        {
+            if (!lobby.HasValue) return;
+            foreach (Friend member in lobby.Value.Members) EnsureLobbyPresenceCursor(member);
+        }
+
+        private void EnsureLobbyPresenceCursor(Friend member)
+        {
+            ulong steamId = (ulong)member.Id;
+            if (steamId == 0 || steamId == (ulong)SteamClient.SteamId) return;
+            foreach (RemoteCursor existing in cursors.Values)
+                if (existing != null && existing.SteamId == steamId) return;
+
+            ushort peerId = AllocateLobbyPresencePeerId(steamId);
+            Vector2 position = GetWorldCursor();
+            cursors.Add(peerId, new RemoteCursor
+            {
+                PeerId = peerId,
+                SteamId = steamId,
+                Name = SafeName(member.Name),
+                Color = CursorColor(peerId),
+                Target = position,
+                Render = position,
+                LastAt = Time.unscaledTime,
+                IsProvisional = true
+            });
+        }
+
+        private ushort AllocateLobbyPresencePeerId(ulong steamId)
+        {
+            ushort candidate = (ushort)(1000UL + (steamId % 58000UL));
+            RemoteCursor existing;
+            while (cursors.TryGetValue(candidate, out existing) && existing != null && existing.SteamId != steamId)
+            {
+                candidate++;
+                if (candidate >= BotPeerBase) candidate = 1000;
+            }
+            return candidate;
+        }
+
+        private void RemoveCursorsForSteam(ulong steamId)
+        {
+            if (steamId == 0) return;
+            List<ushort> remove = new List<ushort>();
+            foreach (KeyValuePair<ushort, RemoteCursor> pair in cursors)
+                if (pair.Value != null && pair.Value.SteamId == steamId) remove.Add(pair.Key);
+            for (int i = 0; i < remove.Count; i++) cursors.Remove(remove[i]);
+        }
+
+        private void RemoveProvisionalCursorsForSteam(ulong steamId)
+        {
+            List<ushort> remove = new List<ushort>();
+            foreach (KeyValuePair<ushort, RemoteCursor> pair in cursors)
+                if (pair.Value != null && pair.Value.SteamId == steamId && pair.Value.IsProvisional) remove.Add(pair.Key);
+            for (int i = 0; i < remove.Count; i++) cursors.Remove(remove[i]);
         }
 
         private void SendCursorToConnection(Connection connection, ushort ownerPeerId, ulong steamId, Vector2 position, Vector2 velocity, bool primaryDown, bool uiBusy)
@@ -1211,7 +1309,7 @@ namespace PPGTogether.BepInEx
 
         private static bool BotWorldReady()
         {
-            return Global.main != null && CatalogBehaviour.Main != null && Camera.main != null;
+            return Global.main != null && CatalogBehaviour.Main != null && GetActiveCamera() != null;
         }
 
         private SpawnableAsset FindBotSpawnable()
@@ -1357,6 +1455,7 @@ namespace PPGTogether.BepInEx
             RemoteCursor cursor;
             if (!cursors.TryGetValue(id, out cursor))
             {
+                RemoveProvisionalCursorsForSteam(payload.SteamId);
                 cursor = new RemoteCursor
                 {
                     PeerId = id,
@@ -1376,6 +1475,7 @@ namespace PPGTogether.BepInEx
             cursor.Buttons = payload.Buttons;
             cursor.UiBusy = payload.UiBusy;
             cursor.IsBot = isBot;
+            cursor.IsProvisional = false;
             if (IsHost) BroadcastFromPeer(WireMessage.Cursor, WireChannel.Cursor, id, envelope.Payload, false);
         }
 
@@ -2541,12 +2641,13 @@ namespace PPGTogether.BepInEx
 
         private void DrawRemoteCursors()
         {
-            if (!lobby.HasValue || cursors.Count == 0 || Camera.main == null) return;
+            Camera activeCamera = GetActiveCamera();
+            if (!lobby.HasValue || cursors.Count == 0 || activeCamera == null) return;
             if (ui == null) ui = new RoundedUiTheme();
             foreach (RemoteCursor cursor in cursors.Values)
             {
-                if (cursor.SteamId == (ulong)SteamClient.SteamId || Time.unscaledTime - cursor.LastAt > 2f) continue;
-                Vector3 screen = Camera.main.WorldToScreenPoint(cursor.Render); if (screen.z < 0f) continue;
+                if (cursor.SteamId == (ulong)SteamClient.SteamId || (!cursor.IsProvisional && Time.unscaledTime - cursor.LastAt > 2f)) continue;
+                Vector3 screen = activeCamera.WorldToScreenPoint(cursor.Render); if (screen.z < 0f) continue;
                 float x = screen.x; float y = Screen.height - screen.y;
                 Texture2D avatar = null;
                 if (!cursor.IsBot && playerShowRemoteAvatarsSetting.Value)
@@ -2562,7 +2663,7 @@ namespace PPGTogether.BepInEx
                 if (playerShowRemoteNamesSetting.Value)
                 {
                     GUI.color = cursor.Color;
-                    string activity = cursor.IsBot ? ((cursor.Buttons & 1) != 0 ? "  SPAWN" : "  BOT") : ((cursor.Buttons & 1) != 0 ? "  GRAB" : (cursor.UiBusy ? "  UI" : string.Empty));
+                    string activity = cursor.IsProvisional ? "  SYNCING" : (cursor.IsBot ? ((cursor.Buttons & 1) != 0 ? "  SPAWN" : "  BOT") : ((cursor.Buttons & 1) != 0 ? "  GRAB" : (cursor.UiBusy ? "  UI" : string.Empty)));
                     GUI.Label(new Rect(x + 13f, y - 16f, 172f, 20f), cursor.Name + activity, ui.Label);
                     GUI.color = UColor.white;
                 }
@@ -2621,7 +2722,12 @@ namespace PPGTogether.BepInEx
         private void BroadcastFromPeer(WireMessage type, WireChannel channel, ushort sourcePeerId, byte[] payload, bool reliable) { foreach (Peer peer in peers.Values) SendToConnection(peer.Connection, type, channel, sourcePeerId, payload, reliable); }
 
         private void SetStatus(string value) { status = value ?? string.Empty; Logger.LogInfo("[Connect] " + status); }
-        private static Vector2 GetWorldCursor() { return Global.main != null ? (Vector2)Global.main.MousePosition : (Camera.main != null ? (Vector2)Camera.main.ScreenToWorldPoint(Input.mousePosition) : Vector2.zero); }
+        private static Camera GetActiveCamera()
+        {
+            if (Global.main != null && Global.main.camera != null) return Global.main.camera;
+            return Camera.main;
+        }
+        private static Vector2 GetWorldCursor() { Camera activeCamera = GetActiveCamera(); return Global.main != null ? (Vector2)Global.main.MousePosition : (activeCamera != null ? (Vector2)activeCamera.ScreenToWorldPoint(Input.mousePosition) : Vector2.zero); }
         private static bool Finite(float value) { return !float.IsNaN(value) && !float.IsInfinity(value); }
         private static ulong MakeNonce() { byte[] bytes = Guid.NewGuid().ToByteArray(); return BitConverter.ToUInt64(bytes, 0) ^ (ulong)DateTime.UtcNow.Ticks; }
         private static string SafeName(string name) { if (string.IsNullOrEmpty(name)) return "Player"; name = name.Replace("<", "&lt;").Replace(">", "&gt;"); return name.Length > 32 ? name.Substring(0, 32) : name; }
@@ -2671,7 +2777,7 @@ namespace PPGTogether.BepInEx
             internal bool BotsAllowed;
             internal int BotSpawnLimit;
         }
-        private sealed class RemoteCursor { internal ushort PeerId; internal ulong SteamId; internal string Name; internal UColor Color; internal Vector2 Target; internal Vector2 Render; internal Vector2 Velocity; internal uint LastSequence; internal byte Buttons; internal float LastAt; internal bool UiBusy; internal bool IsBot; }
+        private sealed class RemoteCursor { internal ushort PeerId; internal ulong SteamId; internal string Name; internal UColor Color; internal Vector2 Target; internal Vector2 Render; internal Vector2 Velocity; internal uint LastSequence; internal byte Buttons; internal float LastAt; internal bool UiBusy; internal bool IsBot; internal bool IsProvisional; }
         private sealed class BotSpawnRecord { internal ushort OwnerPeerId; internal ulong NetId; internal GameObject Instance; internal float CreatedAt; }
         private sealed class BotAgent
         {

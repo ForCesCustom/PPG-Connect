@@ -1,4 +1,4 @@
-# Patches — Connect BepInEx edition v0.1.31
+# Patches — Connect BepInEx edition v0.1.32
 
 ## ClientWorldInputPatch
 
