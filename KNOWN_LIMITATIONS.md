@@ -1,17 +1,21 @@
-# Known limitations — Connect BepInEx edition v0.1.36
+# Known limitations — Connect BepInEx edition v0.1.37
 
 - Every player must extract the same complete Connect ZIP into the game root.
   It already contains BepInEx 5 x64, but Connect remains a non-standard loader
   with Harmony patches rather than a normal People Playground source mod.
 - This environment cannot run a new two-account Steam test. The prior manual
   test established relay cursor movement and automatic guest map entry; the
-  v0.1.36 host-status and Tab-spawn changes are compile/protocol tested but still
+  v0.1.36/0.1.37 host-status, Tab-spawn and post-start baseline changes are compile/protocol tested but still
   require the next host-and-friend runtime test. The new `[Connect][Spawn]`
   records identify the exact failed stage without logging cursor/snapshot spam.
 - Join-in-progress does not reconstruct pre-existing map objects. Start with an
   empty map, create the lobby, press **START & SYNC MAP** and, if needed, choose
   the host map; then use the normal Tab catalog for objects expected to
   replicate.
+- A joining or delayed guest now receives a reliable baseline of objects created
+  after session start once it reports `PLAYING`, but objects present before the
+  session started are still intentionally outside this first world-transfer
+  implementation.
 - Replication is limited to post-start vanilla spawnables with a root Rigidbody2D
   and their root pose/velocity. Existing objects, ragdoll limbs, dismemberment,
   joints, wires, custom components, explosions, projectile/damage state,

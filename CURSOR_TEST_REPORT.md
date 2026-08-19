@@ -1,4 +1,4 @@
-# Connect cursor, Tab Catalog, interactions, Bot Mode, movable panel and Settings verification — 0.1.36
+# Connect cursor, Tab Catalog, interactions, Bot Mode, movable panel and Settings verification — 0.1.37
 
 Executed on 2026-08-19:
 
@@ -52,5 +52,5 @@ instantiation; a new two-account spawn test remains required.
 Not executed here: a new real two-account Steam relay session. That requires a
 second Steam account and separately isolated game instance. Earlier manual
 testing reported working remote cursor movement and guest map entry, but this
-report does not claim that the v0.1.36 Tab-spawn change has been verified on two
-accounts.
+  report does not claim that the v0.1.37 Tab-spawn/baseline change has been
+  verified on two accounts.

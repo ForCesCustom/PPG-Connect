@@ -21,7 +21,7 @@ namespace PPGTogether.BepInEx
         internal const string PluginGuid = "local.ppgtogether.steam";
         // Keep the GUID stable so this is a seamless update for existing users.
         internal const string PluginName = "Connect";
-        internal const string PluginVersion = "0.1.36";
+        internal const string PluginVersion = "0.1.37";
         internal const string ExpectedGameVersion = "1.27.16";
         internal const string RuntimeMarkerName = "Connect.RuntimeMarker";
         internal const string RuntimeVersionMarkerName = "Connect.RuntimeVersion." + PluginVersion;
@@ -740,9 +740,12 @@ namespace PPGTogether.BepInEx
                 Logger.LogWarning("[Connect][Sync] Ignored stale map status from " + peer.Name + ": " + mapIdentity + ".");
                 return;
             }
+            PeerMapStatus previousStatus = peer.MapStatus;
             peer.MapStatus = (PeerMapStatus)rawStatus;
             peer.MapIdentity = mapIdentity;
             Logger.LogInfo("[Connect][Sync] " + peer.Name + " reported " + PeerMapStatusLabel(peer.MapStatus) + " for host map " + mapIdentity + ".");
+            if (peer.MapStatus == PeerMapStatus.Playing && previousStatus != PeerMapStatus.Playing)
+                SendRegisteredWorldBaseline(peer);
             SetStatus(peer.Name + ": " + PeerMapStatusLabel(peer.MapStatus) + " host map.");
         }
 
@@ -860,6 +863,7 @@ namespace PPGTogether.BepInEx
             if (sessionActive && string.Equals(activeMapIdentity, identity, StringComparison.Ordinal)) return;
             if (clientMapLoadPending && string.Equals(clientRequestedMapIdentity, identity, StringComparison.Ordinal)) return;
             clientRequestedMapIdentity = identity;
+            ResetNetworkWorldForMapTransition();
             clientMapLoadPending = true;
             clientMapLoadIssued = false;
             clientMapInstanceLoaded = false;
@@ -1004,6 +1008,7 @@ namespace PPGTogether.BepInEx
         private void SynchroniseHostMapChange(string mapIdentity)
         {
             if (!IsHost || !lobby.HasValue || !IsValidMapIdentity(mapIdentity)) return;
+            ResetNetworkWorldForMapTransition();
             activeMapIdentity = mapIdentity;
             SetPeerMapStatus(PeerMapStatus.LoadingMap, mapIdentity);
             lobby.Value.SetData("ppgt_state", "loading");
@@ -1025,6 +1030,38 @@ namespace PPGTogether.BepInEx
             Writer writer = new Writer(128);
             writer.String(mapIdentity);
             SendToConnection(connection, WireMessage.MapLoad, WireChannel.Control, peerId, writer.ToArray(), true);
+        }
+
+        // A guest can finish the base-game scene transition after objects have
+        // already been spawned by the host or another player.  Steam Lobby
+        // metadata intentionally never contains world data, so send a bounded
+        // per-peer baseline only after that guest reports PLAYING for the exact
+        // current host map. Reliable Spawn events establish IDs first; normal
+        // host snapshots then keep those objects moving.
+        private void SendRegisteredWorldBaseline(Peer peer)
+        {
+            if (!IsHost || peer == null || peer.Connection == null) return;
+            int sent = 0;
+            foreach (PPGTogetherIdentity identity in registry.All())
+            {
+                if (identity == null || identity.gameObject == null || string.IsNullOrEmpty(identity.SpawnKey)) continue;
+                SendSpawnToConnection(peer.Connection, peer.PeerId, identity, identity.gameObject);
+                sent++;
+            }
+            Logger.LogInfo("[Connect][Sync] Sent registered-world baseline to " + peer.Name + ": " + sent + " object(s).");
+        }
+
+        private void ResetNetworkWorldForMapTransition()
+        {
+            grabs.Clear();
+            continuousActivations.Clear();
+            clientHeldActivationRoots.Clear();
+            clientGrabId = 0;
+            clientGrabToken = 0;
+            registry.Clear();
+            botSpawnedItems.Clear();
+            botSpawnCount = 0;
+            Logger.LogInfo("[Connect][World] Cleared registered network world for map transition.");
         }
 
         private void SetPeerMapStatus(PeerMapStatus mapStatus, string mapIdentity)
@@ -1898,12 +1935,27 @@ namespace PPGTogether.BepInEx
         private void BroadcastSpawn(PPGTogetherIdentity identity, GameObject instance)
         {
             if (string.IsNullOrEmpty(identity.SpawnKey)) return;
+            byte[] payload = BuildSpawnPayload(identity, instance);
+            if (payload == null) return;
+            Broadcast(WireMessage.Spawn, WireChannel.World, payload, true);
+            Logger.LogInfo("[Connect][Spawn] Broadcast Spawn: key=" + SafeName(identity.SpawnKey) + ", netId=" + identity.NetId + ", guests=" + peers.Count + ".");
+        }
+
+        private void SendSpawnToConnection(Connection connection, ushort peerId, PPGTogetherIdentity identity, GameObject instance)
+        {
+            byte[] payload = BuildSpawnPayload(identity, instance);
+            if (payload != null) SendToConnection(connection, WireMessage.Spawn, WireChannel.World, peerId, payload, true);
+        }
+
+        private static byte[] BuildSpawnPayload(PPGTogetherIdentity identity, GameObject instance)
+        {
+            if (identity == null || instance == null || string.IsNullOrEmpty(identity.SpawnKey)) return null;
             Transform transform = instance.transform;
+            if (transform == null) return null;
             Writer writer = new Writer(96);
             writer.ULong(identity.NetId); writer.String(identity.SpawnKey); writer.Float(transform.position.x); writer.Float(transform.position.y); writer.Float(transform.eulerAngles.z);
             writer.Float(transform.localScale.x); writer.Float(transform.localScale.y); writer.Float(transform.localScale.z);
-            Broadcast(WireMessage.Spawn, WireChannel.World, writer.ToArray(), true);
-            Logger.LogInfo("[Connect][Spawn] Broadcast Spawn: key=" + SafeName(identity.SpawnKey) + ", netId=" + identity.NetId + ", guests=" + peers.Count + ".");
+            return writer.ToArray();
         }
 
         private void HandleSpawnRequest(ReceivedPacket packet, Envelope envelope)

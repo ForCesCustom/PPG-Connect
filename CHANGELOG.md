@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.37 — Post-start baseline for loading or late guests
+
+- When a guest reports `PLAYING` for the exact current host map, the host now
+  sends that connection a reliable baseline of every registered post-start
+  object. This closes the gap where an object spawned while a guest was still
+  completing the sandbox scene transition could be missed permanently.
+- Clearing the registered world, active grab leases and continuous-use leases is
+  now explicit at a map transition, so destroyed roots from the previous map do
+  not consume the object cap or receive stale snapshot updates on the next map.
+- This is a bounded post-start baseline, not a claim of full pre-session world
+  serialization; existing-map objects, limbs, wires and custom state remain
+  listed in Known Limitations.
+
 ## 0.1.36 — Guest map progress and observable Tab-spawn route
 
 - Added a validated Steam Relay `ClientMapStatus` control message. The host's
