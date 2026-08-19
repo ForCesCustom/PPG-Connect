@@ -21,7 +21,7 @@ namespace PPGTogether.BepInEx
         internal const string PluginGuid = "local.ppgtogether.steam";
         // Keep the GUID stable so this is a seamless update for existing users.
         internal const string PluginName = "Connect";
-        internal const string PluginVersion = "0.1.37";
+        internal const string PluginVersion = "0.1.38";
         internal const string ExpectedGameVersion = "1.27.16";
         internal const string RuntimeMarkerName = "Connect.RuntimeMarker";
         internal const string RuntimeVersionMarkerName = "Connect.RuntimeVersion." + PluginVersion;
@@ -33,6 +33,11 @@ namespace PPGTogether.BepInEx
         private const float BotActionTimeout = 6f;
         private const float BotReachDistance = 0.42f;
         private const byte BotCursorFlag = 0x80;
+        // The shipped rounded Connect icon is a local PNG and currently a
+        // little over 2 MiB. It is loaded once on the Unity main thread, so a
+        // 4 MiB cap remains bounded while avoiding a false "invalid size"
+        // warning and a missing panel icon.
+        private const int MaximumConnectIconBytes = 4 * 1024 * 1024;
         private static readonly string[] BotSpawnKeys = { "Brick", "Metal Rod", "Wooden Plank", "Ball" };
 
         internal static PPGTogetherPlugin Instance;
@@ -311,7 +316,7 @@ namespace PPGTogether.BepInEx
                 string iconPath = Path.Combine(pluginDirectory ?? string.Empty, "connect-icon.png");
                 if (!File.Exists(iconPath)) return;
                 byte[] data = File.ReadAllBytes(iconPath);
-                if (data.Length == 0 || data.Length > 1024 * 1024)
+                if (data.Length == 0 || data.Length > MaximumConnectIconBytes)
                 {
                     Logger.LogWarning("[Connect][UI] Ignoring invalid Connect icon size.");
                     return;

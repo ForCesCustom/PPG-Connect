@@ -2,7 +2,7 @@
 
 [Русская версия](#русская-версия) · [English](#english)
 
-> Current package: **v0.1.37** · protocol **v5** · People Playground **1.27.16**
+> Current package: **v0.1.38** · protocol **v5** · People Playground **1.27.16**
 
 ## English
 
@@ -15,7 +15,7 @@ addresses.
 
 Download the complete plug-and-play ZIP:
 
-**[Connect-v0.1.37.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.37.zip)**
+**[Connect-v0.1.38.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.38.zip)**
 
 1. Close People Playground.
 2. Extract the full ZIP into the folder containing `People Playground.exe`.
@@ -26,6 +26,9 @@ Download the complete plug-and-play ZIP:
 The ZIP already includes BepInEx 5 Unity.Mono-win-x64, the Connect plugin,
 icon, Doorstop files and installation documentation. All players must use the
 same People Playground build and the same Connect version.
+
+Version 0.1.38 fixes the local rounded icon loader: the shipped 2 MiB PNG is
+now accepted under a bounded 4 MiB limit and appears in the Connect panel.
 
 The Workshop Companion is published under **Mercury**, matching the current
 Steam Workshop account and preventing the author-mismatch upload prompt.
@@ -118,7 +121,7 @@ Steam-клиент, не открывает порты и не передаёт 
 
 Скачай полный plug-and-play архив:
 
-**[Connect-v0.1.37.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.37.zip)**
+**[Connect-v0.1.38.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.38.zip)**
 
 1. Полностью закрой People Playground.
 2. Распакуй весь ZIP в папку, где лежит `People Playground.exe`.
@@ -128,6 +131,10 @@ Steam-клиент, не открывает порты и не передаёт 
 
 В ZIP уже есть BepInEx 5 Unity.Mono-win-x64, Connect, иконка, Doorstop и
 инструкции. У всех игроков должна быть одинаковая версия игры и Connect.
+
+Версия 0.1.38 исправляет загрузку локальной закруглённой иконки: PNG из
+релиза весит 2 МБ и теперь допускается ограниченным лимитом 4 МБ, поэтому
+отображается в панели Connect.
 
 Workshop Companion опубликован от автора **Mercury** — это значение совпадает
 с текущим Steam Workshop-профилем и не вызывает предупреждение о другом авторе

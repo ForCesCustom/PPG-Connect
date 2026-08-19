@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.38 — Rounded icon load repair
+
+- Raised the bounded local Connect icon limit from 1 MiB to 4 MiB. The shipped
+  black/pink/red rounded PNG is 2.0 MiB and is loaded only once from the plugin
+  directory, so it now appears in the panel instead of being rejected as an
+  invalid size. No remote image or network download is involved.
+
 ## 0.1.37 — Post-start baseline for loading or late guests
 
 - When a guest reports `PLAYING` for the exact current host map, the host now
