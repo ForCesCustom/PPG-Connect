@@ -1,4 +1,4 @@
-# Patches — Connect BepInEx edition v0.1.34
+# Patches — Connect BepInEx edition v0.1.35
 
 ## ClientWorldInputPatch
 
@@ -94,3 +94,19 @@ security, the game loader, OS mouse input, or anti-cheat/security components.
   blocked from network world actions until its requested map has loaded.
 - Signature/version guard: exact `MapLoaderBehaviour.Load` target. If it cannot
   be patched, no automatic map-follow claim is made and the failure is logged.
+
+## ConnectClientMapViewPatch / ConnectClientSceneSwitchPatch
+
+- Target types: `MapViewBehaviour.Select` and `SceneSwitchBehaviour.Switch`
+- Game tested: People Playground `1.27.16`, Unity `2020.3.1f1`
+- Patch type: Harmony prefixes
+- Reason: the base-game map tile and Enter button can otherwise move a guest
+  into a different local sandbox scene. The host must remain the only map
+  authority.
+- Behaviour: while in a Connect lobby, a non-host's manual tile selection and
+  direct scene switch are blocked with a clear status message. The plugin marks
+  its own host-authorised scene-switch call for the exact duration of that call,
+  then lets People Playground perform its normal loading transition.
+- Signature/version guard: exact public method names. If either target changes,
+  that one guard is not applied; Connect logs the patch failure rather than
+  using a broad input or scene patch.

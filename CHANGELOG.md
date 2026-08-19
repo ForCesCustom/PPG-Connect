@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.35 — Actual sandbox scene transition for guests
+
+- Replaced the client title-menu `MapLoaderBehaviour.Load()` shortcut with the
+  exact People Playground map-selection path: assign the host's installed map,
+  then invoke its `SceneSwitchBehaviour.Switch()` to load the sandbox scene.
+  The newly loaded scene's own `MapLoaderBehaviour` constructs the map.
+- A guest cannot manually select a map tile or use the Enter/Play scene switch
+  while in a Connect lobby. Only the marked host-authorised transition passes
+  through those two narrow Harmony guards.
+- Tightened map readiness: title-menu children no longer count as a loaded map;
+  the requested map root must be active under the actual loader.
+
 ## 0.1.34 — Real map instantiation and high-rate cursors
 
 - Fixed the client map-follow defect exposed by the two-player logs: in People

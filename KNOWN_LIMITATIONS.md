@@ -1,4 +1,4 @@
-# Known limitations — Connect BepInEx edition v0.1.34
+# Known limitations — Connect BepInEx edition v0.1.35
 
 - Every player must extract the same complete Connect ZIP into the game root.
   It already contains BepInEx 5 x64, but Connect remains a non-standard loader
@@ -14,8 +14,9 @@
   and their root pose/velocity. Existing objects, ragdoll limbs, dismemberment,
   joints, wires, custom components, explosions, projectile/damage state,
   freeze, rotate, undo and save/load are not supported. Map selection and map
-  changes now follow the host by installed `Map.UniqueIdentity`, but the map
-  itself must exist locally and its pre-existing objects still are not rebuilt.
+  changes now follow the host by installed `Map.UniqueIdentity` through the
+  game's normal sandbox scene transition, but the map itself must exist locally
+  and its pre-existing objects still are not rebuilt.
   Direct
   vanilla Use (including host-side continuous Use for automatic weapons) plus
   context Activate/Delete are supported only for a registered Connect root;

@@ -21,7 +21,7 @@ namespace PPGTogether.BepInEx
         internal const string PluginGuid = "local.ppgtogether.steam";
         // Keep the GUID stable so this is a seamless update for existing users.
         internal const string PluginName = "Connect";
-        internal const string PluginVersion = "0.1.34";
+        internal const string PluginVersion = "0.1.35";
         internal const string ExpectedGameVersion = "1.27.16";
         internal const string RuntimeMarkerName = "Connect.RuntimeMarker";
         internal const string RuntimeVersionMarkerName = "Connect.RuntimeVersion." + PluginVersion;
@@ -84,6 +84,8 @@ namespace PPGTogether.BepInEx
         private bool clientSessionStartReceived;
         private bool clientMapLoadPending;
         private bool clientMapLoadIssued;
+        private bool clientMapSceneTransitionPending;
+        private bool clientConnectSceneSwitchCall;
         // MapLoaderBehaviour.CurrentMap records a selected map even on the
         // title screen.  Keep separate evidence that a map prefab was really
         // instantiated before telling a client that it is playing.
@@ -122,6 +124,7 @@ namespace PPGTogether.BepInEx
         private string status = "Waiting for Steam context supplied by People Playground.";
         private string activeMapIdentity = string.Empty;
         private string clientRequestedMapIdentity = string.Empty;
+        private string clientRequestedSceneName = string.Empty;
         private int maxPlayers = 4;
         private LobbyPrivacy privacy = LobbyPrivacy.FriendsOnly;
         private ulong clientGrabId;
@@ -729,7 +732,14 @@ namespace PPGTogether.BepInEx
 
             if (!IsHost && clientMapLoadPending && string.Equals(clientRequestedMapIdentity, identity, StringComparison.Ordinal))
             {
-                if (IsRequestedClientMapActuallyLoaded())
+                if (clientMapSceneTransitionPending)
+                {
+                    if (IsMapActuallyLoadedOn(loader, identity))
+                        MarkClientMapLoaded("People Playground scene transition");
+                    else
+                        Logger.LogWarning("[Connect][Sync] The target sandbox scene reached MapLoaderBehaviour.Load, but the requested map root is not active yet. Waiting for the loader instead of falsely entering PLAYING.");
+                }
+                else if (IsRequestedClientMapActuallyLoaded())
                     MarkClientMapLoaded("MapLoaderBehaviour callback");
                 else
                     Logger.LogWarning("[Connect][Sync] MapLoaderBehaviour.Load completed for the requested map, but no instantiated map root was found. Connect will keep waiting instead of entering a false PLAYING state.");
@@ -811,10 +821,12 @@ namespace PPGTogether.BepInEx
             clientMapLoadPending = true;
             clientMapLoadIssued = false;
             clientMapInstanceLoaded = false;
+            clientMapSceneTransitionPending = false;
             clientMapLoadDeadline = Time.unscaledTime + 30f;
             clientMapReadyAt = 0f;
             nextClientMapProbeAt = 0f;
             nextClientMapLoadAttemptAt = 0f;
+            clientRequestedSceneName = string.Empty;
             SetStatus(source + " requested host map: " + SafeName(identity));
             Logger.LogInfo("[Connect][Sync] " + source + " map directive received: " + identity + ".");
             TryBeginClientMapLoad();
@@ -822,7 +834,7 @@ namespace PPGTogether.BepInEx
 
         private void TryActivateClientSession()
         {
-            if (IsHost || sessionActive || !clientSessionStartReceived || clientMapLoadPending) return;
+            if (IsHost || sessionActive || !clientSessionStartReceived || clientMapLoadPending || clientMapSceneTransitionPending) return;
             if (string.IsNullOrEmpty(clientRequestedMapIdentity))
             {
                 SetStatus("Host session started, but no map command has arrived yet.");
@@ -860,6 +872,34 @@ namespace PPGTogether.BepInEx
                 Logger.LogWarning("[Connect][Sync] Map " + clientRequestedMapIdentity + " is not in the local installed catalogue yet.");
                 return;
             }
+
+            // Selecting a map in the base game performs a scene transition;
+            // MapLoaderBehaviour.Load by itself only creates a prefab and
+            // leaves title-menu UI alive. Follow the exact base-game path so
+            // the client enters the sandbox scene before its map loader runs.
+            MapViewBehaviour mapView = FindMapView(map);
+            SceneSwitchBehaviour sceneSwitch = mapView == null ? null : mapView.GetComponent<SceneSwitchBehaviour>();
+            if (sceneSwitch != null && !string.IsNullOrEmpty(sceneSwitch.SceneName))
+            {
+                MapLoaderBehaviour.CurrentMap = map;
+                clientMapLoadIssued = true;
+                clientMapSceneTransitionPending = true;
+                clientRequestedSceneName = sceneSwitch.SceneName;
+                SetStatus("Loading host map through People Playground scene transition: " + SafeName(clientRequestedMapIdentity));
+                Logger.LogInfo("[Connect][Sync] Client requested base-game scene switch '" + SafeName(clientRequestedSceneName) + "' for host map " + clientRequestedMapIdentity + ".");
+                clientConnectSceneSwitchCall = true;
+                try
+                {
+                    sceneSwitch.Switch();
+                }
+                finally
+                {
+                    clientConnectSceneSwitchCall = false;
+                }
+                return;
+            }
+
+            Logger.LogWarning("[Connect][Sync] No active map selection SceneSwitchBehaviour was available for " + clientRequestedMapIdentity + ". Falling back to the current scene's MapLoaderBehaviour.");
             MapLoaderBehaviour loader = FindMapLoader();
             if (loader == null)
             {
@@ -891,6 +931,8 @@ namespace PPGTogether.BepInEx
             if (!clientMapLoadPending) return;
             clientMapInstanceLoaded = true;
             clientMapLoadPending = false;
+            clientMapSceneTransitionPending = false;
+            clientRequestedSceneName = string.Empty;
             clientMapReadyAt = Time.unscaledTime + 0.20f;
             SetStatus("Loaded host map. Synchronising Connect session.");
             Logger.LogInfo("[Connect][Sync] Client verified an instantiated host map via " + evidence + ": " + clientRequestedMapIdentity + ".");
@@ -951,8 +993,20 @@ namespace PPGTogether.BepInEx
             return fallback;
         }
 
+        private static MapViewBehaviour FindMapView(Map map)
+        {
+            MapViewBehaviour[] views = Resources.FindObjectsOfTypeAll<MapViewBehaviour>();
+            for (int i = 0; i < views.Length; i++)
+            {
+                MapViewBehaviour view = views[i];
+                if (view != null && view.gameObject != null && view.gameObject.activeInHierarchy && view.Map == map) return view;
+            }
+            return null;
+        }
+
         private bool IsRequestedClientMapActuallyLoaded()
         {
+            if (clientMapSceneTransitionPending) return false;
             return IsMapActuallyLoaded(clientRequestedMapIdentity);
         }
 
@@ -964,11 +1018,38 @@ namespace PPGTogether.BepInEx
         {
             string currentMap;
             if (!IsValidMapIdentity(identity) || !TryGetCurrentMapIdentity(out currentMap) || !string.Equals(currentMap, identity, StringComparison.Ordinal)) return false;
-            MapLoaderBehaviour[] loaders = Resources.FindObjectsOfTypeAll<MapLoaderBehaviour>();
-            for (int i = 0; i < loaders.Length; i++)
+            return IsMapActuallyLoadedOn(FindMapLoader(), identity);
+        }
+
+        private static bool IsMapActuallyLoadedOn(MapLoaderBehaviour loader, string identity)
+        {
+            string currentMap;
+            if (loader == null || loader.transform == null || !TryGetCurrentMapIdentity(out currentMap) || !string.Equals(currentMap, identity, StringComparison.Ordinal)) return false;
+            if (loader.transform.childCount <= 0) return false;
+
+            // A map prefab instance is the direct child produced by the
+            // game's MapLoaderBehaviour. Matching its source name prevents
+            // an unrelated title-menu child from becoming a false ready flag.
+            Map current = MapLoaderBehaviour.CurrentMap;
+            if (current != null && current.Prefab != null)
             {
-                MapLoaderBehaviour loader = loaders[i];
-                if (loader != null && loader.transform != null && loader.transform.childCount > 0) return true;
+                string prefabName = current.Prefab.name;
+                for (int i = 0; i < loader.transform.childCount; i++)
+                {
+                    Transform child = loader.transform.GetChild(i);
+                    if (child == null || child.gameObject == null || !child.gameObject.activeInHierarchy) continue;
+                    if (string.Equals(child.gameObject.name, prefabName, StringComparison.Ordinal) || string.Equals(child.gameObject.name, prefabName + "(Clone)", StringComparison.Ordinal)) return true;
+                }
+                return false;
+            }
+
+            // Custom maps can use InstantiateOverride and have no prefab
+            // object to name-match. For those maps an active direct child is
+            // the best bounded proof available from the public loader API.
+            for (int i = 0; i < loader.transform.childCount; i++)
+            {
+                Transform child = loader.transform.GetChild(i);
+                if (child != null && child.gameObject != null && child.gameObject.activeInHierarchy) return true;
             }
             return false;
         }
@@ -2128,6 +2209,22 @@ namespace PPGTogether.BepInEx
             return !IsHost && sessionActive && lobby.HasValue && clientPeerId != 0 && transport != null && transport.Connected;
         }
 
+        // A guest never chooses a divergent local map.  Connect's own
+        // scene-switch call is explicitly marked and remains allowed.
+        internal bool AllowClientMapViewSelection()
+        {
+            if (!lobby.HasValue || IsHost) return true;
+            SetStatus("The session host controls map selection. Waiting for the host map.");
+            return false;
+        }
+
+        internal bool AllowClientSceneSwitch()
+        {
+            if (!lobby.HasValue || IsHost || clientConnectSceneSwitchCall) return true;
+            SetStatus("The session host controls map selection. Waiting for the host map.");
+            return false;
+        }
+
         private void StartSession()
         {
             if (!IsHost || !lobby.HasValue) { SetStatus("Only the lobby host can start the session."); return; }
@@ -2168,8 +2265,8 @@ namespace PPGTogether.BepInEx
         {
             RestoreHostPhysicsSettings();
             sessionActive = false; clientPeerId = 0; clientGrabId = 0; clientGrabToken = 0;
-            hostStartAwaitingMap = false; clientSessionStartReceived = false; clientMapLoadPending = false; clientMapLoadIssued = false; clientMapInstanceLoaded = false;
-            clientMapLoadDeadline = 0f; clientMapReadyAt = 0f; nextClientMapProbeAt = 0f; nextClientMapLoadAttemptAt = 0f; clientRequestedMapIdentity = string.Empty; activeMapIdentity = string.Empty;
+            hostStartAwaitingMap = false; clientSessionStartReceived = false; clientMapLoadPending = false; clientMapLoadIssued = false; clientMapInstanceLoaded = false; clientMapSceneTransitionPending = false; clientConnectSceneSwitchCall = false;
+            clientMapLoadDeadline = 0f; clientMapReadyAt = 0f; nextClientMapProbeAt = 0f; nextClientMapLoadAttemptAt = 0f; clientRequestedMapIdentity = string.Empty; clientRequestedSceneName = string.Empty; activeMapIdentity = string.Empty;
             botsEnabled = false; botSpawnCount = 0; ReleaseBots(); bots.Clear(); botSpawnedItems.Clear();
             grabs.Clear(); continuousActivations.Clear(); clientHeldActivationRoots.Clear(); registry.Clear(); peers.Clear(); cursors.Clear(); avatars.Clear(); guestSpawnWindows.Clear(); guestInteractionWindows.Clear(); remoteHostSettings = new HostSettingsView();
             if (transport != null) transport.Close();

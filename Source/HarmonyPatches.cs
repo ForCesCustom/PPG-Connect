@@ -89,4 +89,29 @@ namespace PPGTogether.BepInEx
             if (plugin != null) plugin.OnLocalMapLoaded(__instance);
         }
     }
+
+    // A normal map tile first stores CurrentMap and then starts a scene
+    // transition.  Block that tile for guests before it can alter their local
+    // selection; the host is the only player who may choose the shared map.
+    [HarmonyPatch(typeof(MapViewBehaviour), "Select")]
+    internal static class ConnectClientMapViewPatch
+    {
+        private static bool Prefix()
+        {
+            PPGTogetherPlugin plugin = PPGTogetherPlugin.Instance;
+            return plugin == null || plugin.AllowClientMapViewSelection();
+        }
+    }
+
+    // Also cover the Enter/Play button's direct scene switch. Connect marks
+    // its own host-authorised switch for the duration of the exact call.
+    [HarmonyPatch(typeof(SceneSwitchBehaviour), "Switch")]
+    internal static class ConnectClientSceneSwitchPatch
+    {
+        private static bool Prefix()
+        {
+            PPGTogetherPlugin plugin = PPGTogetherPlugin.Instance;
+            return plugin == null || plugin.AllowClientSceneSwitch();
+        }
+    }
 }

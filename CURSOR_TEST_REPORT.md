@@ -1,4 +1,4 @@
-# Connect cursor, Tab Catalog, interactions, Bot Mode, movable panel and Settings verification — 0.1.34
+# Connect cursor, Tab Catalog, interactions, Bot Mode, movable panel and Settings verification — 0.1.35
 
 Executed on 2026-08-19:
 
@@ -33,6 +33,10 @@ Executed on 2026-08-19:
 - `MapLoad` protocol v4 envelope/string round-trip: passed. The implementation
   was compiled against the local public `MapLoaderBehaviour.Load()` and
   `MapLoaderBehaviour.CurrentMap` signatures.
+- The host-map scene path was inspected against the local `MapViewBehaviour.Select`
+  and `SceneSwitchBehaviour.Switch` method bodies. It now uses the same async
+  scene transition as the normal People Playground map UI; a post-fix
+  two-account visual run is still required.
 
 The live route is host-authoritative: clients submit their own world-space
 cursor; the host validates the Steam transport identity and relays it with the
