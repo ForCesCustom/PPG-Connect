@@ -2,7 +2,7 @@
 
 [Русская версия](#русская-версия) · [English](#english)
 
-> Current package: **v0.1.38** · protocol **v5** · People Playground **1.27.16**
+> Current package: **v0.1.40** · protocol **v5** · People Playground **1.27.16**
 
 ## English
 
@@ -15,7 +15,7 @@ addresses.
 
 Download the complete plug-and-play ZIP:
 
-**[Connect-v0.1.38.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.38.zip)**
+**[Connect-v0.1.40.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.40.zip)**
 
 1. Close People Playground.
 2. Extract the full ZIP into the folder containing `People Playground.exe`.
@@ -27,8 +27,18 @@ The ZIP already includes BepInEx 5 Unity.Mono-win-x64, the Connect plugin,
 icon, Doorstop files and installation documentation. All players must use the
 same People Playground build and the same Connect version.
 
-Version 0.1.38 fixes the local rounded icon loader: the shipped 2 MiB PNG is
-now accepted under a bounded 4 MiB limit and appears in the Connect panel.
+Version 0.1.39 fixes a guest that was left at the title menu until manually
+pressing Play. It automatically starts the locally confirmed `Main` sandbox
+scene after the host map command, prevents repeated Lobby callbacks from
+restarting that load, and accepts the map only after the sandbox map root
+exists. Pre-ready object packets are deferred to the host's reliable baseline.
+
+Version 0.1.40 replaces the random four-item Bot Mode routine with autonomous,
+host-only cursor minds. They build a throttled world model, classify catalog
+objects, remember outcomes, select utility-scored goals, claim separate work,
+explore frontiers, arrange registered objects through host grab leases and use
+compatible registered mechanisms. Humans are supported content but are never a
+default bot-spawn fallback.
 
 The Workshop Companion is published under **Mercury**, matching the current
 Steam Workshop account and preventing the author-mismatch upload prompt.
@@ -46,6 +56,11 @@ The same direct URL is printed in the game notice.
   same locally installed map automatically.
 - Steam relay transport carries the handshake, cursor updates and approved game
   actions.
+- Version 0.1.39 handles the title-menu case without a map card or map loader:
+  it chooses only the host-selected locally installed map, starts the confirmed
+  `Main` sandbox scene, then waits for that scene's own map loader. A guest
+  cannot be marked `PLAYING` from `CurrentMap` alone, and repeated Steam Lobby
+  data callbacks no longer restart the same load.
 - Version 0.1.35 follows People Playground's full map-selection route: the
   client runs the matching base-game sandbox scene transition, then verifies
   the requested map root. Connected non-hosts cannot select or enter a
@@ -89,6 +104,10 @@ leases, host-led installed-map follow, post-session vanilla catalog spawns,
 despawns, root Rigidbody2D snapshots, bounded Use/Delete actions, automatic
 weapon continuous Use, bot cursors, and host/player settings.
 
+Bots are a host-local sandbox system: their existing cursor visuals, menu,
+count and lifecycle stay unchanged. Their decisions are now autonomous, but
+they never delete player-created items and only act on registered Connect roots.
+
 Not yet implemented as full replication: pre-existing world transfer,
 ragdoll limb biology and dismemberment topology, joints, wires, arbitrary
 Workshop context actions, projectile/hit/explosion state, complete pre-existing
@@ -121,7 +140,7 @@ Steam-клиент, не открывает порты и не передаёт 
 
 Скачай полный plug-and-play архив:
 
-**[Connect-v0.1.38.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.38.zip)**
+**[Connect-v0.1.40.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.40.zip)**
 
 1. Полностью закрой People Playground.
 2. Распакуй весь ZIP в папку, где лежит `People Playground.exe`.
@@ -132,9 +151,17 @@ Steam-клиент, не открывает порты и не передаёт 
 В ZIP уже есть BepInEx 5 Unity.Mono-win-x64, Connect, иконка, Doorstop и
 инструкции. У всех игроков должна быть одинаковая версия игры и Connect.
 
-Версия 0.1.38 исправляет загрузку локальной закруглённой иконки: PNG из
-релиза весит 2 МБ и теперь допускается ограниченным лимитом 4 МБ, поэтому
-отображается в панели Connect.
+Версия 0.1.39 исправляет случай, когда гость оставался в главном меню, пока
+вручную не нажмёт Play. После команды карты хоста Connect сам запускает
+подтверждённую sandbox-сцену `Main`, не даёт повторным Lobby callbacks снова
+сбрасывать загрузку и ждёт настоящий root карты. Пакеты объектов до статуса
+`PLAYING` откладываются до надёжного baseline хоста.
+
+Версия 0.1.40 полностью заменяет случайный алгоритм Bot Mode из четырёх
+предметов: теперь у курсоров-ботов есть ограниченная карта интереса и знаний о
+мире, классификация объектов каталога, память результата, utility-цели,
+координационные leases и разные личности. Human остаётся допустимым контентом,
+но больше не является техническим значением по умолчанию для спавна.
 
 Workshop Companion опубликован от автора **Mercury** — это значение совпадает
 с текущим Steam Workshop-профилем и не вызывает предупреждение о другом авторе
@@ -151,6 +178,11 @@ BepInEx runtime, он увидит нативное окно People Playground �
   После старта хоста и выбора карты они автоматически загружают ту же локально
   установленную карту.
 - Steam Relay передаёт handshake, курсоры и подтверждённые игровые действия.
+- Версия 0.1.39 обрабатывает именно главное меню, где нет карты и
+  `MapLoaderBehaviour`: выбирается только локально установленная карта хоста,
+  запускается подтверждённая sandbox-сцена `Main`, а затем ожидается её штатный
+  loader. Одного `CurrentMap` больше недостаточно для статуса `PLAYING`, и
+  повторные Steam Lobby callbacks не перезапускают ту же загрузку.
 - Версия 0.1.35 проводит клиента через полный штатный переход карты People
   Playground: сначала sandbox-сцена, затем проверка root нужной карты.
   Подключённый не-хост не может сам выбрать или открыть другую карту. Курсор
@@ -190,6 +222,10 @@ BepInEx runtime, он увидит нативное окно People Playground �
 на выбранную хостом установленную карту, vanilla-спавн после старта сессии, despawn, root
 Rigidbody2D snapshots, ограниченные Use/Delete, continuous Use для
 автоматического оружия, боты и настройки хоста/игрока.
+
+Меню, количество и внешний вид ботов не менялись. Новый интеллект работает
+только у хоста, не эмулирует мышь игрока и не удаляет вещи игроков: действия
+ограничены зарегистрированными Connect root-объектами и теми же host leases.
 
 Пока нет полной синхронизации: существующего до старта мира, конечностей и
 дисмембера, joints/wires, произвольных Workshop-действий, состояния пуль/

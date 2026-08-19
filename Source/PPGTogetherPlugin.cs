@@ -10,6 +10,7 @@ using HarmonyLib;
 using Steamworks;
 using Steamworks.Data;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using Color = UnityEngine.Color;
 using UColor = UnityEngine.Color;
 
@@ -21,7 +22,7 @@ namespace PPGTogether.BepInEx
         internal const string PluginGuid = "local.ppgtogether.steam";
         // Keep the GUID stable so this is a seamless update for existing users.
         internal const string PluginName = "Connect";
-        internal const string PluginVersion = "0.1.38";
+        internal const string PluginVersion = "0.1.40";
         internal const string ExpectedGameVersion = "1.27.16";
         internal const string RuntimeMarkerName = "Connect.RuntimeMarker";
         internal const string RuntimeVersionMarkerName = "Connect.RuntimeVersion." + PluginVersion;
@@ -33,12 +34,17 @@ namespace PPGTogether.BepInEx
         private const float BotActionTimeout = 6f;
         private const float BotReachDistance = 0.42f;
         private const byte BotCursorFlag = 0x80;
+        // Confirmed in the local People Playground build settings: Menu,
+        // Main and Map Editor are the only bundled scenes. "Main" is the
+        // sandbox scene selected by the normal map tile, so it is safe to use
+        // as the deterministic fallback when a guest is still at the title
+        // menu and therefore has no MapViewBehaviour to click.
+        private const string SandboxSceneName = "Main";
         // The shipped rounded Connect icon is a local PNG and currently a
         // little over 2 MiB. It is loaded once on the Unity main thread, so a
         // 4 MiB cap remains bounded while avoiding a false "invalid size"
         // warning and a missing panel icon.
         private const int MaximumConnectIconBytes = 4 * 1024 * 1024;
-        private static readonly string[] BotSpawnKeys = { "Brick", "Metal Rod", "Wooden Plank", "Ball" };
 
         internal static PPGTogetherPlugin Instance;
 
@@ -47,6 +53,9 @@ namespace PPGTogether.BepInEx
         private readonly Dictionary<ushort, RemoteCursor> cursors = new Dictionary<ushort, RemoteCursor>();
         private readonly List<BotAgent> bots = new List<BotAgent>();
         private readonly List<BotSpawnRecord> botSpawnedItems = new List<BotSpawnRecord>();
+        private readonly BotWorldKnowledge botWorld = new BotWorldKnowledge();
+        private readonly BotSpawnCatalog botCatalog = new BotSpawnCatalog();
+        private readonly BotCoordinationBoard botCoordination = new BotCoordinationBoard();
         private readonly HostGrabController grabs;
         private readonly HostActivationController continuousActivations = new HostActivationController();
         private readonly SteamAvatarCache avatars = new SteamAvatarCache();
@@ -633,10 +642,14 @@ namespace PPGTogether.BepInEx
             if (envelope.Type == WireMessage.GrabDenied && !IsHost) { HandleGrabDenied(envelope); return; }
             if (envelope.Type == WireMessage.GrabUpdate && IsHost) { HandleGrabUpdate(packet, envelope); return; }
             if (envelope.Type == WireMessage.GrabEnd && IsHost) { HandleGrabEnd(packet, envelope); return; }
-            if (envelope.Type == WireMessage.Snapshot && !IsHost) { HandleSnapshot(envelope); return; }
+            if (envelope.Type == WireMessage.Snapshot && !IsHost) { if (sessionActive) HandleSnapshot(envelope); return; }
             if (envelope.Type == WireMessage.SpawnRequest && IsHost) { HandleSpawnRequest(packet, envelope); return; }
-            if (envelope.Type == WireMessage.Spawn && !IsHost) { HandleSpawn(envelope); return; }
-            if (envelope.Type == WireMessage.Despawn && !IsHost) { HandleDespawn(envelope); return; }
+            // World packets received while a guest is still in the title
+            // scene must not instantiate objects there. The host sends a
+            // reliable registered-world baseline immediately after this guest
+            // reports PLAYING, so dropping the pre-ready copy is deliberate.
+            if (envelope.Type == WireMessage.Spawn && !IsHost) { if (sessionActive) HandleSpawn(envelope); else Logger.LogInfo("[Connect][Spawn] Deferred Spawn until this client reports PLAYING; host baseline will resend it."); return; }
+            if (envelope.Type == WireMessage.Despawn && !IsHost) { if (sessionActive) HandleDespawn(envelope); return; }
             if (envelope.Type == WireMessage.InteractionRequest && IsHost) { HandleInteractionRequest(packet, envelope); return; }
             Logger.LogWarning("[Connect][Protocol] Ignored " + envelope.Type + " for role " + (IsHost ? "HOST" : "CLIENT") + ".");
         }
@@ -857,6 +870,11 @@ namespace PPGTogether.BepInEx
             string identity = source.GetData("ppgt_map_id");
             if ((state == "loading" || state == "playing") && IsValidMapIdentity(identity))
             {
+                // Lobby-data notifications can be repeated many times while a
+                // scene is loading. Do not reset a successful in-flight load
+                // back to LOADING/SYNCING on every callback.
+                if (string.Equals(clientRequestedMapIdentity, identity, StringComparison.Ordinal) &&
+                    (clientMapLoadPending || clientMapLoadIssued || clientMapInstanceLoaded)) return;
                 Logger.LogInfo("[Connect][Sync] Lobby map directive: state=" + state + ", map=" + identity + ".");
                 QueueClientMapLoad(identity, "Steam Lobby");
             }
@@ -866,7 +884,8 @@ namespace PPGTogether.BepInEx
         {
             if (IsHost || !IsValidMapIdentity(identity)) return;
             if (sessionActive && string.Equals(activeMapIdentity, identity, StringComparison.Ordinal)) return;
-            if (clientMapLoadPending && string.Equals(clientRequestedMapIdentity, identity, StringComparison.Ordinal)) return;
+            if (string.Equals(clientRequestedMapIdentity, identity, StringComparison.Ordinal) &&
+                (clientMapLoadPending || clientMapLoadIssued || clientMapInstanceLoaded)) return;
             clientRequestedMapIdentity = identity;
             ResetNetworkWorldForMapTransition();
             clientMapLoadPending = true;
@@ -906,12 +925,16 @@ namespace PPGTogether.BepInEx
         private void TryBeginClientMapLoad()
         {
             if (!clientMapLoadPending || string.IsNullOrEmpty(clientRequestedMapIdentity)) return;
-            if (IsRequestedClientMapActuallyLoaded())
+            // CurrentMap can be assigned in the title menu. Only accept an
+            // already-instantiated root before issuing a load when the active
+            // scene is known to be the sandbox scene; otherwise title-menu
+            // remnants can produce a false ready result.
+            if (!clientMapSceneTransitionPending && IsSandboxSceneActive() && IsRequestedClientMapActuallyLoaded())
             {
                 MarkClientMapLoaded("pre-load map instance check");
                 return;
             }
-            if (clientMapLoadIssued) return;
+            if (clientMapSceneTransitionPending || clientMapLoadIssued) return;
 
             // A missing loader or a menu transition can legitimately take a
             // moment. Retrying a few times per second avoids Resource scans
@@ -952,7 +975,34 @@ namespace PPGTogether.BepInEx
                 return;
             }
 
-            Logger.LogWarning("[Connect][Sync] No active map selection SceneSwitchBehaviour was available for " + clientRequestedMapIdentity + ". Falling back to the current scene's MapLoaderBehaviour.");
+            // At the title screen no map-card GameObject and no map loader are
+            // active, which is exactly why the old path waited forever for the
+            // player to press Play. The normal map-card path is confirmed to
+            // enter the local "Main" sandbox scene. Do that same local scene
+            // transition after assigning only the host-selected installed map.
+            MapLoaderBehaviour.CurrentMap = map;
+            clientMapLoadIssued = true;
+            clientMapSceneTransitionPending = true;
+            clientRequestedSceneName = SandboxSceneName;
+            try
+            {
+                AsyncOperation operation = SceneManager.LoadSceneAsync(SandboxSceneName, LoadSceneMode.Single);
+                if (operation != null)
+                {
+                    SetStatus("Loading host map automatically through People Playground sandbox scene.");
+                    Logger.LogInfo("[Connect][Sync] Guest title-menu fallback started confirmed sandbox scene '" + SandboxSceneName + "' for host map " + clientRequestedMapIdentity + ".");
+                    return;
+                }
+            }
+            catch (Exception exception)
+            {
+                Logger.LogWarning("[Connect][Sync] Direct sandbox scene transition failed: " + exception.Message);
+            }
+            clientMapLoadIssued = false;
+            clientMapSceneTransitionPending = false;
+            clientRequestedSceneName = string.Empty;
+
+            Logger.LogWarning("[Connect][Sync] Direct sandbox scene transition was unavailable for " + clientRequestedMapIdentity + ". Falling back to the current scene's MapLoaderBehaviour.");
             MapLoaderBehaviour loader = FindMapLoader();
             if (loader == null)
             {
@@ -1060,6 +1110,9 @@ namespace PPGTogether.BepInEx
         {
             grabs.Clear();
             continuousActivations.Clear();
+            botCoordination.Clear();
+            botWorld.Clear();
+            botCatalog.Clear();
             clientHeldActivationRoots.Clear();
             clientGrabId = 0;
             clientGrabToken = 0;
@@ -1128,6 +1181,12 @@ namespace PPGTogether.BepInEx
         {
             if (clientMapSceneTransitionPending) return false;
             return IsMapActuallyLoaded(clientRequestedMapIdentity);
+        }
+
+        private static bool IsSandboxSceneActive()
+        {
+            Scene active = SceneManager.GetActiveScene();
+            return active.IsValid() && string.Equals(active.name, SandboxSceneName, StringComparison.Ordinal);
         }
 
         // MapLoaderBehaviour.CurrentMap is a selection, not a load-complete
@@ -1384,7 +1443,7 @@ namespace PPGTogether.BepInEx
                     PeerId = (ushort)(BotPeerBase + i),
                     SteamId = 0xF000000000000000UL + (ulong)(i + 1),
                     Name = BotDisplayName(i),
-                    Brain = new BotBrain((BotPersonality)(i % 3)),
+                    Mind = new BotMind((BotPersonality)(i % 3), (uint)(0xC011EC7u + (uint)i * 2654435761u)),
                     Origin = origin,
                     Position = position,
                     Target = position,
@@ -1404,10 +1463,14 @@ namespace PPGTogether.BepInEx
             // actual People Playground sandbox has supplied its catalog/world.
             if (!IsHost || !sessionActive || !botsEnabled || !BotWorldReady()) return;
             float now = Time.unscaledTime;
+            botWorld.Refresh(registry, now);
+            botCatalog.Refresh(now, LogBotCatalogWarning);
             PruneBotSpawnedItems();
             for (int i = 0; i < bots.Count; i++)
             {
                 BotAgent bot = bots[i];
+                if (now >= bot.ActionUntil && bot.Action != BotAction.Idle && bot.Mind != null)
+                    bot.Mind.ReportOutcome(bot.PeerId, BotOutcome.Timeout, botCoordination, now);
                 if (bot.Action == BotAction.Idle || now >= bot.ActionUntil)
                     PlanBotAction(bot, now);
 
@@ -1418,7 +1481,6 @@ namespace PPGTogether.BepInEx
                 if (bot.Action == BotAction.Spawn && Reached(bot.Position, bot.Target))
                 {
                     SpawnBotItem(bot, now);
-                    FinishBotAction(bot, now);
                 }
                 else if (bot.Action == BotAction.GrabAndPlace)
                 {
@@ -1427,7 +1489,14 @@ namespace PPGTogether.BepInEx
                 else if (bot.Action == BotAction.Cleanup && Reached(bot.Position, bot.Target))
                 {
                     CleanupBotItem(bot);
-                    FinishBotAction(bot, now);
+                }
+                else if (bot.Action == BotAction.Activate && Reached(bot.Position, bot.Target))
+                {
+                    ActivateBotItem(bot, now);
+                }
+                else if ((bot.Action == BotAction.Explore || bot.Action == BotAction.Inspect || bot.Action == BotAction.Recover || bot.Action == BotAction.Wander) && Reached(bot.Position, bot.Target))
+                {
+                    FinishBotAction(bot, now, BotOutcome.Success);
                 }
 
                 if (now >= bot.NextBroadcastAt)
@@ -1440,57 +1509,51 @@ namespace PPGTogether.BepInEx
 
         private void PlanBotAction(BotAgent bot, float now)
         {
-            bool canSpawn = botSpawnCount < BotSpawnLimit();
-            bool canGrab = hostBotInteractionsSetting.Value && FindBotCreatedItem(false) != null;
-            bool canCleanup = hostBotCleanupSetting.Value && FindBotCreatedItem(true) != null;
-            BotAction selected = bot.Brain.Choose(UnityEngine.Random.Range(0, Int32.MaxValue), canSpawn, canGrab, canCleanup);
-            bot.Action = selected;
+            if (bot == null || bot.Mind == null) return;
+            BotPerception perception = botWorld.Perceive(bot.Position, botSpawnCount < BotSpawnLimit(), hostBotInteractionsSetting.Value, true, hostBotCleanupSetting.Value, now);
+            BotDecision decision = bot.Mind.Decide(bot.PeerId, perception, botCoordination, now);
+            bot.Decision = decision;
+            bot.Action = decision == null ? BotAction.Explore : decision.Action;
+            if (decision != null) Logger.LogDebug("[Connect][Bots] " + bot.Name + " chose " + decision.Goal + "/" + decision.Action + " (" + decision.Rationale + ", utility=" + decision.Utility.ToString("0.00") + ").");
             bot.ActionUntil = now + BotActionTimeout;
             bot.CurrentItem = null;
             bot.GrabNetId = 0;
             bot.GrabToken = 0;
-
-            if (selected == BotAction.Spawn)
+            if (decision == null) { bot.Target = bot.Position; bot.Action = BotAction.Idle; return; }
+            bot.Target = ToUnityPoint(decision.Target);
+            bot.PlaceTarget = ToUnityPoint(decision.Placement);
+            if (bot.Action == BotAction.Spawn || bot.Action == BotAction.Explore || bot.Action == BotAction.Inspect || bot.Action == BotAction.Recover) return;
+            if (bot.Action == BotAction.GrabAndPlace)
             {
-                bot.Target = RandomBotPoint(bot);
-                return;
+                BotSpawnRecord record = FindRegisteredBotItem(decision.TargetKey);
+                if (record != null && TryGetBotInteractionPoint(record, out bot.InteractionPoint)) { bot.CurrentItem = record; bot.Target = bot.InteractionPoint; return; }
             }
-            if (selected == BotAction.GrabAndPlace)
+            else if (bot.Action == BotAction.Cleanup)
             {
-                BotSpawnRecord record = FindBotCreatedItem(false);
-                if (record != null && TryGetBotInteractionPoint(record, out bot.InteractionPoint))
-                {
-                    bot.CurrentItem = record;
-                    bot.PlaceTarget = RandomBotPoint(bot);
-                    bot.Target = bot.InteractionPoint;
-                    return;
-                }
-            }
-            if (selected == BotAction.Cleanup)
-            {
+                // Cleanup is intentionally limited to bot-created records. A
+                // bot may study player items, but never deletes them itself.
                 BotSpawnRecord record = FindBotCreatedItem(true);
-                if (record != null && TryGetBotInteractionPoint(record, out bot.InteractionPoint))
-                {
-                    bot.CurrentItem = record;
-                    bot.Target = bot.InteractionPoint;
-                    return;
-                }
+                if (record != null && TryGetBotInteractionPoint(record, out bot.InteractionPoint)) { bot.CurrentItem = record; bot.Target = bot.InteractionPoint; return; }
             }
-
-            bot.Action = BotAction.Wander;
-            bot.Target = RandomBotPoint(bot);
-            bot.ActionUntil = now + UnityEngine.Random.Range(1.3f, 2.8f);
+            else if (bot.Action == BotAction.Activate)
+            {
+                BotSpawnRecord record = FindRegisteredBotItem(decision.TargetKey);
+                if (record != null && TryGetBotInteractionPoint(record, out bot.InteractionPoint)) { bot.CurrentItem = record; bot.Target = bot.InteractionPoint; return; }
+            }
+            bot.Mind.ReportOutcome(bot.PeerId, BotOutcome.MissingTarget, botCoordination, now);
+            bot.Action = BotAction.Idle;
         }
 
         private void SpawnBotItem(BotAgent bot, float now)
         {
-            if (botSpawnCount >= BotSpawnLimit()) return;
-            SpawnableAsset asset = FindBotSpawnable();
-            if (asset == null) return;
+            if (botSpawnCount >= BotSpawnLimit()) { FinishBotAction(bot, now, BotOutcome.Denied); return; }
+            BotSpawnChoice choice = bot.Decision == null ? null : botCatalog.Select(bot.Decision.SpawnKind, bot.Index);
+            if (choice == null || choice.Asset == null) { FinishBotAction(bot, now, BotOutcome.MissingTarget); return; }
+            SpawnableAsset asset = choice.Asset;
             GameObject created = SpawnAndReplicate(asset, bot.Position);
-            if (created == null) return;
+            if (created == null) { FinishBotAction(bot, now, BotOutcome.Denied); return; }
             PPGTogetherIdentity identity = created.GetComponent<PPGTogetherIdentity>();
-            if (identity == null || identity.NetId == 0) return;
+            if (identity == null || identity.NetId == 0) { FinishBotAction(bot, now, BotOutcome.MissingTarget); return; }
             botSpawnCount++;
             botSpawnedItems.Add(new BotSpawnRecord
             {
@@ -1499,13 +1562,14 @@ namespace PPGTogether.BepInEx
                 Instance = created,
                 CreatedAt = now
             });
+            FinishBotAction(bot, now, BotOutcome.Success);
         }
 
         private void UpdateBotGrab(BotAgent bot, float now)
         {
             if (bot.CurrentItem == null || bot.CurrentItem.Instance == null)
             {
-                FinishBotAction(bot, now);
+                FinishBotAction(bot, now, BotOutcome.MissingTarget);
                 return;
             }
             if (bot.GrabToken == 0)
@@ -1515,7 +1579,7 @@ namespace PPGTogether.BepInEx
                 string denial;
                 if (!grabs.TryBegin(bot.PeerId, bot.InteractionPoint, hostTick, out grab, out denial))
                 {
-                    FinishBotAction(bot, now);
+                    FinishBotAction(bot, now, BotOutcome.Denied);
                     return;
                 }
                 bot.GrabNetId = grab.NetId;
@@ -1525,38 +1589,53 @@ namespace PPGTogether.BepInEx
                 return;
             }
             grabs.Update(bot.PeerId, bot.GrabNetId, bot.GrabToken, bot.PlaceTarget, hostTick);
-            if (Reached(bot.Position, bot.PlaceTarget)) FinishBotAction(bot, now);
+            if (Reached(bot.Position, bot.PlaceTarget)) FinishBotAction(bot, now, BotOutcome.Success);
         }
 
         private void CleanupBotItem(BotAgent bot)
         {
             BotSpawnRecord record = bot.CurrentItem;
-            if (record == null || record.Instance == null || grabs.IsActive(record.NetId)) return;
+            if (record == null || record.Instance == null || grabs.IsActive(record.NetId)) { FinishBotAction(bot, Time.unscaledTime, BotOutcome.MissingTarget); return; }
             PPGTogetherIdentity identity = record.Instance.GetComponent<PPGTogetherIdentity>();
-            if (identity == null || identity.NetId != record.NetId) return;
+            if (identity == null || identity.NetId != record.NetId) { FinishBotAction(bot, Time.unscaledTime, BotOutcome.MissingTarget); return; }
             registry.Remove(record.Instance);
             identity.NetId = 0;
             Writer writer = new Writer(8); writer.ULong(record.NetId);
             Broadcast(WireMessage.Despawn, WireChannel.World, writer.ToArray(), true);
             Destroy(record.Instance);
             botSpawnedItems.Remove(record);
+            FinishBotAction(bot, Time.unscaledTime, BotOutcome.Success);
         }
 
-        private void FinishBotAction(BotAgent bot, float now)
+        private void ActivateBotItem(BotAgent bot, float now)
+        {
+            PPGTogetherIdentity identity = bot.CurrentItem == null || bot.CurrentItem.Instance == null ? null : bot.CurrentItem.Instance.GetComponent<PPGTogetherIdentity>();
+            bool applied = identity != null && identity.NetId == bot.CurrentItem.NetId && HostActivate(identity);
+            FinishBotAction(bot, now, applied ? BotOutcome.Success : BotOutcome.Denied);
+        }
+
+        private void FinishBotAction(BotAgent bot, float now, BotOutcome outcome)
         {
             if (bot.GrabToken != 0) grabs.End(bot.PeerId, bot.GrabNetId, bot.GrabToken);
+            if (bot.Mind != null) bot.Mind.ReportOutcome(bot.PeerId, outcome, botCoordination, now);
             bot.GrabNetId = 0;
             bot.GrabToken = 0;
             bot.CurrentItem = null;
-            bot.Action = BotAction.Wander;
-            bot.Target = RandomBotPoint(bot);
-            bot.ActionUntil = now + UnityEngine.Random.Range(1.2f, 2.4f);
+            bot.Decision = null;
+            bot.Action = BotAction.Idle;
+            bot.Target = bot.Position;
+            bot.ActionUntil = now + 0.15f;
             bot.NextDecisionAt = bot.ActionUntil;
         }
 
         private void ReleaseBots()
         {
-            for (int i = 0; i < bots.Count; i++) grabs.ReleasePeer(bots[i].PeerId);
+            for (int i = 0; i < bots.Count; i++)
+            {
+                grabs.ReleasePeer(bots[i].PeerId);
+                if (bots[i].Mind != null) bots[i].Mind.Cancel(bots[i].PeerId, botCoordination);
+            }
+            botCoordination.Clear();
         }
 
         private void PruneBotSpawnedItems()
@@ -1594,6 +1673,20 @@ namespace PPGTogether.BepInEx
             return null;
         }
 
+        private BotSpawnRecord FindRegisteredBotItem(ulong netId)
+        {
+            if (netId == 0) return null;
+            PPGTogetherIdentity identity;
+            if (!registry.TryGet(netId, out identity) || identity == null || identity.gameObject == null) return null;
+            return new BotSpawnRecord
+            {
+                OwnerPeerId = 0,
+                NetId = netId,
+                Instance = identity.gameObject,
+                CreatedAt = Time.unscaledTime
+            };
+        }
+
         private static bool TryGetBotInteractionPoint(BotSpawnRecord record, out Vector2 point)
         {
             point = Vector2.zero;
@@ -1615,26 +1708,16 @@ namespace PPGTogether.BepInEx
             return (current - target).sqrMagnitude <= BotReachDistance * BotReachDistance;
         }
 
-        private static Vector2 RandomBotPoint(BotAgent bot)
-        {
-            Vector2 offset = UnityEngine.Random.insideUnitCircle * UnityEngine.Random.Range(2.5f, 8f);
-            return bot.Origin + offset;
-        }
+        private static Vector2 ToUnityPoint(BotPoint point) { return new Vector2(point.X, point.Y); }
 
         private static bool BotWorldReady()
         {
             return Global.main != null && CatalogBehaviour.Main != null && GetActiveCamera() != null;
         }
 
-        private SpawnableAsset FindBotSpawnable()
+        private void LogBotCatalogWarning(string warning)
         {
-            int start = UnityEngine.Random.Range(0, BotSpawnKeys.Length);
-            for (int i = 0; i < BotSpawnKeys.Length; i++)
-            {
-                SpawnableAsset asset = ModAPI.FindSpawnable(BotSpawnKeys[(start + i) % BotSpawnKeys.Length]);
-                if (asset != null && !asset.IsLocked) return asset;
-            }
-            return null;
+            if (!string.IsNullOrEmpty(warning)) Logger.LogDebug("[Connect][Bots] " + warning);
         }
 
         private void PublishBotCursor(BotAgent bot)
@@ -2415,7 +2498,7 @@ namespace PPGTogether.BepInEx
             sessionActive = false; clientPeerId = 0; clientGrabId = 0; clientGrabToken = 0;
             hostStartAwaitingMap = false; clientSessionStartReceived = false; clientMapLoadPending = false; clientMapLoadIssued = false; clientMapInstanceLoaded = false; clientMapSceneTransitionPending = false; clientConnectSceneSwitchCall = false;
             clientMapLoadDeadline = 0f; clientMapReadyAt = 0f; nextClientMapProbeAt = 0f; nextClientMapLoadAttemptAt = 0f; clientRequestedMapIdentity = string.Empty; clientRequestedSceneName = string.Empty; activeMapIdentity = string.Empty;
-            botsEnabled = false; botSpawnCount = 0; ReleaseBots(); bots.Clear(); botSpawnedItems.Clear();
+            botsEnabled = false; botSpawnCount = 0; ReleaseBots(); bots.Clear(); botSpawnedItems.Clear(); botWorld.Clear(); botCatalog.Clear();
             grabs.Clear(); continuousActivations.Clear(); clientHeldActivationRoots.Clear(); registry.Clear(); peers.Clear(); cursors.Clear(); avatars.Clear(); guestSpawnWindows.Clear(); guestInteractionWindows.Clear(); remoteHostSettings = new HostSettingsView();
             if (transport != null) transport.Close();
             if (leaveSteamLobby && lobby.HasValue) lobby.Value.Leave();
@@ -3055,7 +3138,7 @@ namespace PPGTogether.BepInEx
 
         private void DrawDebug()
         {
-            GUILayout.BeginArea(new Rect(Screen.width - 315f, 20f, 295f, 200f), GUI.skin.box);
+            GUILayout.BeginArea(new Rect(Screen.width - 315f, 20f, 295f, 220f), GUI.skin.box);
             GUILayout.Label("CONNECT DEBUG");
             GUILayout.Label("Role: " + (IsHost ? "HOST" : (lobby.HasValue ? "CLIENT" : "NONE")));
             GUILayout.Label("Lobby: " + (lobby.HasValue ? ((ulong)lobby.Value.Id).ToString() : "none"));
@@ -3063,6 +3146,7 @@ namespace PPGTogether.BepInEx
             GUILayout.Label("Relay: " + (transport != null && (transport.Hosting || transport.Connected) ? "ready" : "idle"));
             GUILayout.Label("Peers: " + peers.Count + " · Cursors: " + cursors.Count);
             GUILayout.Label("Objects: " + registry.Count + " · Bots: " + bots.Count + " · Tick: " + hostTick);
+            GUILayout.Label("Bot knowledge: " + botWorld.Count + " · Catalog: " + botCatalog.Count);
             GUILayout.Label("Harmony world-input patch: " + (patchApplied ? "applied" : "not applied"));
             GUILayout.EndArea();
         }
@@ -3171,7 +3255,8 @@ namespace PPGTogether.BepInEx
             internal ushort PeerId;
             internal ulong SteamId;
             internal string Name;
-            internal BotBrain Brain;
+            internal BotMind Mind;
+            internal BotDecision Decision;
             internal BotAction Action;
             internal Vector2 Origin;
             internal Vector2 Position;

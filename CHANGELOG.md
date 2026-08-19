@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.1.40 — Autonomous bot intelligence
+
+- Replaced the old random four-item bot routine with a host-only autonomous
+  decision system: bounded world knowledge, spatial/interest cells, object
+  classification, personality/mood, short-term learning, utility scoring,
+  goal hysteresis, bounded plans and cross-bot claim leases.
+- Bots now choose a category from the already registered People Playground
+  catalog instead of treating Human as a fallback. The catalog reader includes
+  installed catalog collections when available and safe built-in fallbacks;
+  unavailable categories safely choose a non-living material/object instead.
+- Builder, Mover and Cleaner retain the existing bot count, virtual cursors,
+  UI and lifecycle, but now explore different frontiers, claim separate
+  targets, inspect new network objects, arrange objects through the existing
+  host grab lease, use compatible registered mechanisms, and clean only their
+  own old unleased creations.
+- World scans are capped at 180 PhysicalBehaviour roots every 1.35 seconds;
+  decisions consume this cached model rather than scanning every frame. F10
+  diagnostics now show bot knowledge and discovered catalog counts.
+- Added deterministic, non-Unity smoke coverage for goal selection, safe
+  non-Human default spawning, coordination leases, recovery after a missing
+  target and danger avoidance.
+
+## 0.1.39 — Automatic guest sandbox entry and spawn-ready gate
+
+- Fixed the title-menu case shown in the two-account logs: a guest no longer
+  waits for a manually created `MapLoaderBehaviour`. After the host selects a
+  map, Connect assigns that already-installed map locally and starts People
+  Playground's confirmed `Main` sandbox scene automatically. The map loader in
+  that scene creates the selected map as in the vanilla map-card path.
+- Stopped repeated `ppgt_state` Lobby callbacks from resetting the same guest
+  map load from **SYNCING** back to **LOADING MAP**. A map directive now has
+  one in-flight state until the map is loaded, failed, or the host chooses a
+  different map.
+- Removed the title-menu false-ready path: `CurrentMap` is never accepted as
+  map-load proof unless the active Unity scene is the sandbox `Main` scene and
+  the corresponding map root exists beneath the game loader.
+- World `Spawn`, `Despawn`, and physics snapshot packets are ignored while a
+  guest is not yet `PLAYING`; the host's existing reliable post-ready baseline
+  resends all registered Connect objects after the guest confirms its map.
+  This prevents objects appearing in the title scene and makes a guest Tab
+  spawn eligible for host validation only after its own session is active.
+
 ## 0.1.38 — Rounded icon load repair
 
 - Raised the bounded local Connect icon limit from 1 MiB to 4 MiB. The shipped

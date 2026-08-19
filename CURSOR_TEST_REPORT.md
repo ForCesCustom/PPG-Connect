@@ -1,6 +1,16 @@
-# Connect cursor, Tab Catalog, interactions, Bot Mode, movable panel and Settings verification — 0.1.38
+# Connect cursor, Tab Catalog, interactions, Bot Mode, movable panel and Settings verification — 0.1.39
 
 Executed on 2026-08-19:
+
+- Full BepInEx project rebuild after the automatic title-menu-to-`Main`
+  sandbox transition and pre-ready world-packet gate: passed.
+- The local build settings were checked: the available game scenes are `Menu`,
+  `Main`, and `Map Editor`; `Main` is the scene reached by the confirmed normal
+  `SceneSwitchBehaviour` map route. The fallback therefore never consumes a
+  scene name from Steam or from a client payload.
+- A post-fix two-account Steam run is still required. The local environment
+  has one Steam account, so this report does not claim that the v0.1.39 guest
+  transition or guest Tab-spawn route was runtime-verified with a second user.
 
 - Full plugin compile with the locally installed People Playground and BepInEx 5
   assemblies: passed.

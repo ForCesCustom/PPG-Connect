@@ -2,7 +2,7 @@
   "Name": "Connect Workshop Companion",
   "Author": "Mercury",
   "Description": "Checks that the external BepInEx Connect files are installed and gives a clear recovery notice when they are missing.",
-  "ModVersion": "0.1.38",
+  "ModVersion": "0.1.40",
   "GameVersion": "1.27.16",
   "ThumbnailPath": "thumbnail.png",
   "EntryPoint": "ConnectWorkshopCompanion.Mod",

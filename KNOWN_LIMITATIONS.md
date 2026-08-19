@@ -1,4 +1,4 @@
-# Known limitations — Connect BepInEx edition v0.1.38
+# Known limitations — Connect BepInEx edition v0.1.40
 
 - Every player must extract the same complete Connect ZIP into the game root.
   It already contains BepInEx 5 x64, but Connect remains a non-standard loader
@@ -34,10 +34,13 @@
   kick UI, Rich Presence or host migration is implemented.
 - Bot Mode is host-only and intentionally limited to three bots. Its vanilla
   spawn cap is configurable by the host from 0 to 100 per session. Bots do not
-  join the Steam lobby or use a Steam avatar. Bots can spawn, use the same
-  host-authoritative lease to grab/place, and clean up only their own old
-  unleased vanilla items; they never touch player-built items, Workshop
-  content, activation, wires or arbitrary delete targets.
+  join the Steam lobby or use a Steam avatar. They build a bounded local model
+  of the map and can classify installed catalog content, but full simulation of
+  arbitrary Workshop component semantics is not claimed. They may activate
+  compatible registered Connect roots through the host's vanilla Use path,
+  grab/place registered roots through the same lease system as players, and
+  clean only their own old unleased creations. They never delete player-built
+  items, emit arbitrary context actions, create wires or manipulate files.
 - The normal Tab catalog is now the only spawn UI. The session must use the
   same catalog content: there is no mod-set manifest comparison or Workshop
   download, and unknown/custom spawnables are not guaranteed to resolve.
