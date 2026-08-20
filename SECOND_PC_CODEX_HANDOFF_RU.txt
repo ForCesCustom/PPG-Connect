@@ -1,0 +1,136 @@
+КОНТЕКСТ ДЛЯ НОВОГО ЧАТА CODEX — CONNECT / PEOPLE PLAYGROUND
+==============================================================
+
+Ты продолжаешь существующий проект, а не создаёшь мод заново. Пользователь
+работает с другого ПК и хочет привести этот компьютер к тому же рабочему
+состоянию, что и основной.
+
+Репозиторий
+-----------
+
+GitHub: https://github.com/ForCesCustom/PPG-Connect
+Ветка: main
+Последний подтверждённый commit: 1438af2 — Release v0.1.41 multi-step bot plans
+Актуальный мод: Connect v0.1.41
+Актуальный установочный архив:
+https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.41.zip
+
+Первое действие на новом ПК
+---------------------------
+
+1. Найди People Playground в Steam-библиотеках, включая дополнительные
+   libraryfolders.vdf. Не угадывай путь и не меняй игровые DLL/exe.
+2. Клонируй репозиторий в удобную рабочую папку:
+
+   git clone https://github.com/ForCesCustom/PPG-Connect.git
+   cd PPG-Connect
+   git pull origin main
+
+3. Проверь git status. Не удаляй и не добавляй в commit чужие локальные файлы.
+4. Установи тот же готовый Connect пакет: полностью распакуй
+   Releases/Connect-v0.1.41.zip в корень игры — туда, где лежит
+   People Playground.exe. Разреши объединить BepInEx. Не заменяй exe игры,
+   игровые DLL, steam_api DLL и чужие BepInEx-плагины.
+5. Проверь, что итоговый файл существует:
+   <GameRoot>\BepInEx\plugins\Connect\Connect.BepInEx.dll
+6. Запускай игру через Steam. Если игра была открыта до установки, сначала
+   закрой и открой её снова. Нажми F8 для панели Connect, F10 для диагностики.
+
+Локальная целевая конфигурация, которую нужно проверить
+--------------------------------------------------------
+
+- People Playground 1.27.16, Steam build 24782494
+- Unity 2020.3.1f1 Mono x64
+- Facepunch.Steamworks.Win64, уже поставляемый игрой
+- BepInEx 5 Unity.Mono-win-x64 в release ZIP
+- C# 5 / .NET Framework 4.0 для development build
+
+Исходники и сборка
+------------------
+
+Главный проект: Dev/PPGTogether.BepInEx.csproj
+Исходники: Source/
+Собирай против реально найденной игры. Если default BepInExRoot из csproj не
+подходит на новом ПК, передай путь явно, например:
+
+MSBuild Dev\PPGTogether.BepInEx.csproj /t:Rebuild /p:Configuration=Debug /p:GameRoot="<GameRoot>" /p:BepInExRoot="<GameRoot>\BepInEx\core"
+
+После каждой реальной правки:
+
+1. Собери проект.
+2. Запусти имеющиеся smoke tests, если их зависимости доступны:
+   Dev/BotBrainSmokeTests.cs
+   Dev/ProtocolSmokeTests.cs
+   Dev/InstallationHealthSmokeTests.cs
+3. Сверь SHA-256 собранного Connect.BepInEx.dll и DLL в установленной папке.
+4. Создавай новый release ZIP с новой версией, не перезаписывай старый ZIP.
+5. Только затем git add конкретных файлов, commit и git push origin main.
+
+Что уже реализовано
+--------------------
+
+- Steam Lobby/invite через существующий игровой Facepunch Steamworks context:
+  Connect не вызывает Steam init/shutdown и не добавляет Steam DLL.
+- Steam Relay transport, handshake, независимые цветные world-space cursors,
+  host-authoritative grab leases, Tab-spawn через хост, post-start baseline и
+  root Rigidbody2D snapshots.
+- Хост ведёт игроков на выбранную карту; гость не может выбрать другую карту.
+  Host panel показывает LOADING MAP / SYNCING / PLAYING / MAP FAILED.
+- Runtime поставляется plug-and-play ZIP: BepInEx, Doorstop, Connect DLL,
+  rounded icon, Workshop Companion и документация.
+- Workshop Companion показывает понятную плашку и ссылку на GitHub, если
+  runtime отсутствует или его версия не совпадает.
+- Bot Mode UI, кнопки, выбранное пользователем число ботов, cursor visuals,
+  names/IDs и lifecycle НЕЛЬЗЯ переписывать без отдельного запроса.
+- В v0.1.40/0.1.41 внутренний bot AI заменён: BotWorldKnowledge,
+  BotSpawnCatalog, BotMind, personality/mood/memory, interest map, bounded
+  world scans, object classifier, utility goals, coordination claims, learned
+  outcomes и multi-step plans.
+- Human не является fallback для bot-spawn. Боты только наблюдают обычные
+  существующие map objects, а grab/use/delete выполняют исключительно над
+  зарегистрированными Connect roots на host; cleanup не удаляет вещи игроков.
+- Архитектура описана в BOT_INTELLIGENCE.md.
+
+Файлы, которые особенно важно не потерять
+------------------------------------------
+
+Source/PPGTogetherPlugin.cs
+Source/BotBrain.cs
+Source/BotWorldKnowledge.cs
+Source/BotSpawnCatalog.cs
+Source/WorldState.cs
+README.md и README.txt
+KNOWN_LIMITATIONS.md
+BOT_INTELLIGENCE.md
+Releases/Connect-v0.1.41.zip
+
+Честность тестирования
+----------------------
+
+На основном ПК v0.1.41 успешно прошла compilation, BotBrain smoke tests,
+Protocol smoke tests, InstallationHealth smoke tests, hash/ZIP verification
+и была опубликована в GitHub. Полный двухаккаунтный Steam runtime-тест именно
+v0.1.41 не утверждай выполненным, пока не проверишь его с двумя разными Steam
+аккаунтами/устройствами.
+
+Поведение нового агента
+-----------------------
+
+- Пиши пользователю по-русски, сначала результат, затем краткие шаги.
+- Перед действиями сообщай короткий status update.
+- Не проси подтверждений между обычными этапами реализации.
+- Не создавай второй Steam client, не используй App ID 480, не меняй игровые
+  DLL и не обходи проверки безопасности.
+- Не утверждай, что функция или runtime test работают, если они не были
+  действительно реализованы и проверены.
+- Не запускай/не закрывай игру пользователя без необходимости; для runtime
+  теста объясни, что конкретно проверяешь.
+
+Конечная цель на втором ПК
+--------------------------
+
+Итоговый Git repository, установленный Connect и release ZIP должны совпадать
+с GitHub main v0.1.41. После проверки агент должен отчитаться о найденном
+пути игры, build/test status, SHA-256 DLL, пути установки и любых отличиях.
+
+
