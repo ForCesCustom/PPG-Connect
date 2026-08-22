@@ -22,7 +22,7 @@ namespace PPGTogether.BepInEx
         internal const string PluginGuid = "local.ppgtogether.steam";
         // Keep the GUID stable so this is a seamless update for existing users.
         internal const string PluginName = "Connect";
-        internal const string PluginVersion = "0.1.41";
+        internal const string PluginVersion = "0.1.42";
         internal const string ExpectedGameVersion = "1.27.16";
         internal const string RuntimeMarkerName = "Connect.RuntimeMarker";
         internal const string RuntimeVersionMarkerName = "Connect.RuntimeVersion." + PluginVersion;
@@ -1998,7 +1998,12 @@ namespace PPGTogether.BepInEx
             if (!IsHost || !sessionActive || args == null || args.Instance == null || args.SpawnableAsset == null) return;
             PPGTogetherIdentity known;
             if (registry.TryGet(args.Instance, out known)) return;
-            string key = args.SpawnableAsset.NameToOrderBy;
+            string key = ResolveNetworkSpawnKey(args.SpawnableAsset);
+            if (string.IsNullOrEmpty(key))
+            {
+                Logger.LogWarning("[Connect][Spawn] Host catalog spawn has no portable key. The local asset key was " + SafeName(args.SpawnableAsset.NameToOrderBy) + ".");
+                return;
+            }
             PPGTogetherIdentity identity = registry.RegisterHost(args.Instance, key);
             if (identity != null)
             {
@@ -2159,13 +2164,14 @@ namespace PPGTogether.BepInEx
 
         internal void RequestCatalogSpawn(SpawnableAsset asset, bool flipped)
         {
-            if (asset == null || string.IsNullOrEmpty(asset.NameToOrderBy)) { Logger.LogWarning("[Connect][Spawn] Tab catalog interception had no usable SpawnableAsset."); SetStatus("The selected catalog item is unavailable."); return; }
-            if (!CanClientSendWorldRequest()) { Logger.LogWarning("[Connect][Spawn] Tab spawn for " + SafeName(asset.NameToOrderBy) + " was intercepted, but the guest relay session is not ready. session=" + sessionActive + ", peer=" + clientPeerId + ", connected=" + (transport != null && transport.Connected) + "."); SetStatus("Waiting for the Steam Relay handshake before catalog spawn."); return; }
+            string key = ResolveNetworkSpawnKey(asset);
+            if (string.IsNullOrEmpty(key)) { Logger.LogWarning("[Connect][Spawn] Tab catalog interception had no portable SpawnableAsset key. The local asset key was " + SafeName(asset == null ? string.Empty : asset.NameToOrderBy) + "."); SetStatus("The selected catalog item is unavailable on this game build."); return; }
+            if (!CanClientSendWorldRequest()) { Logger.LogWarning("[Connect][Spawn] Tab spawn for " + SafeName(key) + " was intercepted, but the guest relay session is not ready. session=" + sessionActive + ", peer=" + clientPeerId + ", connected=" + (transport != null && transport.Connected) + "."); SetStatus("Waiting for the Steam Relay handshake before catalog spawn."); return; }
             Vector2 point = GetWorldCursor();
-            Writer writer = new Writer(80); writer.String(asset.NameToOrderBy); writer.Float(point.x); writer.Float(point.y); writer.Bool(flipped);
+            Writer writer = new Writer(80); writer.String(key); writer.Float(point.x); writer.Float(point.y); writer.Bool(flipped);
             SendToHost(WireMessage.SpawnRequest, WireChannel.World, writer.ToArray(), true);
-            Logger.LogInfo("[Connect][Spawn] Intercepted Tab spawn and sent SpawnRequest: key=" + SafeName(asset.NameToOrderBy) + ", x=" + point.x + ", y=" + point.y + ", flipped=" + flipped + ".");
-            SetStatus("Requested " + SafeName(asset.NameToOrderBy) + " from the Tab catalog. Waiting for host authority.");
+            Logger.LogInfo("[Connect][Spawn] Intercepted Tab spawn and sent SpawnRequest: key=" + SafeName(key) + ", x=" + point.x + ", y=" + point.y + ", flipped=" + flipped + ".");
+            SetStatus("Requested " + SafeName(key) + " from the Tab catalog. Waiting for host authority.");
         }
 
         // These helpers are called only from the narrow client-side Harmony
@@ -3196,6 +3202,28 @@ namespace PPGTogether.BepInEx
         {
             if (Global.main != null && Global.main.camera != null) return Global.main.camera;
             return Camera.main;
+        }
+        // NameToOrderBy is normally the public catalog key, but recent People
+        // Playground builds can expose a transient numeric ordering value (for
+        // example "0") to the catalog Spawn Harmony callback.  Never send that
+        // placeholder across the relay: resolve one of the asset's stable local
+        // aliases that ModAPI can actually create on both peers.
+        private static string ResolveNetworkSpawnKey(SpawnableAsset asset)
+        {
+            if (asset == null) return string.Empty;
+            string prefabName = asset.Prefab == null ? string.Empty : asset.Prefab.name;
+            string[] candidates = new[] { asset.NameToOrderBy, asset.PriorName, asset.name, prefabName };
+            for (int i = 0; i < candidates.Length; i++)
+            {
+                string candidate = candidates[i];
+                if (string.IsNullOrEmpty(candidate) || candidate == "0") continue;
+                try
+                {
+                    if (ModAPI.FindSpawnable(candidate) != null) return candidate;
+                }
+                catch (Exception) { }
+            }
+            return string.Empty;
         }
         private static Vector2 GetWorldCursor() { Camera activeCamera = GetActiveCamera(); return Global.main != null ? (Vector2)Global.main.MousePosition : (activeCamera != null ? (Vector2)activeCamera.ScreenToWorldPoint(Input.mousePosition) : Vector2.zero); }
         private static bool Finite(float value) { return !float.IsNaN(value) && !float.IsInfinity(value); }

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.42 — Current catalog spawn keys
+
+- Fixed post-start vanilla catalog spawns on current People Playground builds:
+  the catalog can expose a temporary numeric ordering value (such as `0`) to
+  the Harmony callback instead of a portable spawn name. Connect now resolves
+  a usable local spawn key before a client request or host broadcast.
+- Added `Connect` as an installed native Mods-menu companion in the complete
+  release ZIP. It uses the same blue Connect icon as the F8 panel and avoids
+  the `OpenURL` call rejected by People Playground's current mod compiler.
+
 ## 0.1.41 — Multi-step bot plans
 
 - Bot plans now execute bounded follow-up steps instead of stopping at a single

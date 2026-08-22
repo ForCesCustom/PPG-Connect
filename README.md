@@ -2,7 +2,7 @@
 
 [Русская версия](#русская-версия) · [English](#english)
 
-> Current package: **v0.1.41** · protocol **v5** · People Playground **1.27.16**
+> Current package: **v0.1.42** · protocol **v5** · People Playground **1.27.16**
 
 ## English
 
@@ -15,7 +15,7 @@ addresses.
 
 Download the complete plug-and-play ZIP:
 
-**[Connect-v0.1.41.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.41.zip)**
+**[Connect-v0.1.42.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.42.zip)**
 
 1. Close People Playground.
 2. Extract the full ZIP into the folder containing `People Playground.exe`.
@@ -33,20 +33,11 @@ scene after the host map command, prevents repeated Lobby callbacks from
 restarting that load, and accepts the map only after the sandbox map root
 exists. Pre-ready object packets are deferred to the host's reliable baseline.
 
-Version 0.1.41 finalizes the autonomous Bot Mode update with bounded multi-step
-plans. The previously random four-item routine is replaced by autonomous,
-host-only cursor minds. They build a throttled world model, classify catalog
-objects, remember outcomes, select utility-scored goals, claim separate work,
-explore frontiers, arrange registered objects through host grab leases and use
-compatible registered mechanisms. Humans are supported content but are never a
-default bot-spawn fallback.
-
-The Workshop Companion is published under **Mercury**, matching the current
-Steam Workshop account and preventing the author-mismatch upload prompt.
-If someone installs only that Companion, or its version differs from the
-BepInEx runtime, it shows a native People Playground recovery dialog with
-**OPEN CONNECT ON GITHUB** instead of pretending multiplayer is available.
-The same direct URL is printed in the game notice.
+Version 0.1.42 resolves a valid catalog spawn key before it sends a guest
+request or host broadcast. This fixes current People Playground builds that
+expose a temporary numeric catalog ordering value instead of a spawn name.
+The complete ZIP also installs the blue **Connect** card in the native Mods
+menu; the actual multiplayer runtime remains the BepInEx plugin opened with F8.
 
 ### How multiplayer works
 
@@ -141,7 +132,7 @@ Steam-клиент, не открывает порты и не передаёт 
 
 Скачай полный plug-and-play архив:
 
-**[Connect-v0.1.41.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.41.zip)**
+**[Connect-v0.1.42.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.42.zip)**
 
 1. Полностью закрой People Playground.
 2. Распакуй весь ZIP в папку, где лежит `People Playground.exe`.
@@ -158,19 +149,11 @@ Steam-клиент, не открывает порты и не передаёт 
 сбрасывать загрузку и ждёт настоящий root карты. Пакеты объектов до статуса
 `PLAYING` откладываются до надёжного baseline хоста.
 
-Версия 0.1.41 завершает обновление автономного Bot Mode многошаговыми планами.
-Случайный алгоритм из четырёх предметов полностью заменён:
-предметов: теперь у курсоров-ботов есть ограниченная карта интереса и знаний о
-мире, классификация объектов каталога, память результата, utility-цели,
-координационные leases и разные личности. Human остаётся допустимым контентом,
-но больше не является техническим значением по умолчанию для спавна.
-
-Workshop Companion опубликован от автора **Mercury** — это значение совпадает
-с текущим Steam Workshop-профилем и не вызывает предупреждение о другом авторе
-при загрузке.
-Если пользователь установил только Companion или его версия не совпадает с
-BepInEx runtime, он увидит нативное окно People Playground с кнопкой
-**OPEN CONNECT ON GITHUB**. Та же прямая ссылка выводится в игровом уведомлении.
+Версия 0.1.42 подбирает корректный ключ предмета каталога перед отправкой
+запроса гостя или рассылкой хоста. Это исправляет текущие сборки People
+Playground, которые отдают временное числовое значение сортировки вместо имени
+предмета. Полный ZIP также устанавливает голубую карточку **Connect** в
+обычное меню Mods; сам мультиплеер по-прежнему запускается BepInEx-плагином по F8.
 
 ### Как работает мультиплеер
 

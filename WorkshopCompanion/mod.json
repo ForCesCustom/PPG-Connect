@@ -1,8 +1,8 @@
 {
-  "Name": "Connect Workshop Companion",
+  "Name": "Connect",
   "Author": "Mercury",
-  "Description": "Checks that the external BepInEx Connect files are installed and gives a clear recovery notice when they are missing.",
-  "ModVersion": "0.1.41",
+  "Description": "Native People Playground menu companion for Connect. The complete BepInEx Connect package is required for multiplayer.",
+  "ModVersion": "0.1.42",
   "GameVersion": "1.27.16",
   "ThumbnailPath": "thumbnail.png",
   "EntryPoint": "ConnectWorkshopCompanion.Mod",

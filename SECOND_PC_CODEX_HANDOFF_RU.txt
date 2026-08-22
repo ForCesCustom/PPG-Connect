@@ -11,9 +11,9 @@
 GitHub: https://github.com/ForCesCustom/PPG-Connect
 Ветка: main
 Последний подтверждённый commit: 1438af2 — Release v0.1.41 multi-step bot plans
-Актуальный мод: Connect v0.1.41
+Актуальный мод: Connect v0.1.42
 Актуальный установочный архив:
-https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.41.zip
+https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.42.zip
 
 Первое действие на новом ПК
 ---------------------------
@@ -28,7 +28,7 @@ https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.41.zi
 
 3. Проверь git status. Не удаляй и не добавляй в commit чужие локальные файлы.
 4. Установи тот же готовый Connect пакет: полностью распакуй
-   Releases/Connect-v0.1.41.zip в корень игры — туда, где лежит
+   Releases/Connect-v0.1.42.zip в корень игры — туда, где лежит
    People Playground.exe. Разреши объединить BepInEx. Не заменяй exe игры,
    игровые DLL, steam_api DLL и чужие BepInEx-плагины.
 5. Проверь, что итоговый файл существует:
@@ -102,7 +102,7 @@ Source/WorldState.cs
 README.md и README.txt
 KNOWN_LIMITATIONS.md
 BOT_INTELLIGENCE.md
-Releases/Connect-v0.1.41.zip
+Releases/Connect-v0.1.42.zip
 
 Честность тестирования
 ----------------------
@@ -130,7 +130,7 @@ v0.1.41 не утверждай выполненным, пока не прове
 --------------------------
 
 Итоговый Git repository, установленный Connect и release ZIP должны совпадать
-с GitHub main v0.1.41. После проверки агент должен отчитаться о найденном
+с GitHub main v0.1.42. После проверки агент должен отчитаться о найденном
 пути игры, build/test status, SHA-256 DLL, пути установки и любых отличиях.
 
 

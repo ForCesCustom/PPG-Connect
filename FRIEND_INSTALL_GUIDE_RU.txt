@@ -8,7 +8,7 @@ CONNECT — УСТАНОВКА ДЛЯ ДРУГА
 • Steam запущен под разными аккаунтами.
 
 Актуальный ZIP:
-https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.41.zip
+https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.42.zip
 
 Установка
 ---------
@@ -27,7 +27,7 @@ https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.41.zi
 Проверка
 --------
 
-В заголовке должна быть красно-розовая иконка Connect. Если F8 ничего не
+В заголовке должна быть голубая иконка Connect. Если F8 ничего не
 открывает, открой BepInEx\LogOutput.log и найди строку:
 
   [Connect][Core] BepInEx plugin loaded.
@@ -47,8 +47,6 @@ https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.41.zi
    загрузят эту же установленную у них карту. Если карта уже открыта, переход
    отправляется сразу.
 
-Если в Steam Workshop установлен только Connect Workshop Companion, а полный
-Connect runtime не установлен или его версия не совпадает с Companion, появится
-отдельная плашка с кнопками OPEN CONNECT ON GITHUB и CLOSE. Ссылка также
-выводится в стандартном игровом уведомлении. После запуска основной BepInEx-мод также
-проверит нужные файлы и покажет прямую ссылку на актуальный ZIP.
+В ZIP также есть обычная карточка **Connect** в меню Mods. Это companion для
+видимости в штатном меню; сам мультиплеер всё равно запускается полной
+BepInEx-частью через F8.
