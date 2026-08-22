@@ -1,4 +1,4 @@
-# Connect relay protocol v5
+# Connect relay protocol v6
 
 The BepInEx plugin sends this binary protocol through the game-supplied
 Facepunch `SteamNetworkingSockets` relay connection. It never serializes CLR
@@ -45,6 +45,11 @@ host rejects an unknown peer, mismatched peer ID, stale map identity, malformed
 payload, or status outside that small range; it never accepts a client-selected
 map or scene name.
 
+`RigSnapshot` (`24`) is an unreliable host-to-client Snapshot message for one
+Rigidbody2D nested below a registered spawned root. It carries that root NetId,
+a bounded child-index path and pose/velocity. Only the host emits it; clients
+never submit a body transform.
+
 ## Envelope
 
 All fields are little-endian. The fixed header is 30 bytes.
@@ -52,7 +57,7 @@ All fields are little-endian. The fixed header is 30 bytes.
 | Offset | Bytes | Field |
 |---:|---:|---|
 | 0 | 4 | Magic `0x54475050` (`PPGT`, retained for wire compatibility) |
-| 4 | 2 | Protocol version (`5`) |
+| 4 | 2 | Protocol version (`6`) |
 | 6 | 1 | Message type |
 | 7 | 1 | Logical channel |
 | 8 | 8 | Session nonce |
@@ -72,7 +77,8 @@ finite floats before a handler can apply the message. A stale nonce is dropped.
   session start/end, BotMode and HostSettings.
 - `World` (reliable unless an update): grab lease, spawn/despawn and bounded
   interaction requests.
-- `Snapshot` (unreliable): root Rigidbody2D state.
+- `Snapshot` (unreliable): root Rigidbody2D state and nested `RigSnapshot`
+  poses for compound registered spawnables.
 - `Cursor` (unreliable): world-space cursor state.
 
 ## Implemented messages
@@ -93,6 +99,9 @@ finite floats before a handler can apply the message. A stale nonce is dropped.
   a lease expires if the client disconnects or stops renewing it. It never
   invokes a method name supplied by a client.
 - `Snapshot`: registered root network ID plus root Rigidbody2D pose/velocity.
+- `RigSnapshot`: registered root ID plus a bounded child-index path and one
+  nested Rigidbody2D pose/velocity; used for compound spawnables such as
+  people.
 - `MapLoad`: host-selected installed-map identity. The client displays a clear
   local-map/timeout status if that identity cannot be resolved; it never enters
   the active gameplay state while still at the title screen.

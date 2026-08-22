@@ -1,4 +1,4 @@
-Connect — BepInEx edition v0.1.42
+Connect — BepInEx edition v0.1.43
 ===============================
 
 Connect adds a host-authoritative Steam Relay session to People Playground.
@@ -18,8 +18,8 @@ Installation
 
 1. Fully close People Playground.
 2. Download the complete package from
-   `https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.42.zip`.
-   Extract the entire **Connect-v0.1.42.zip** directly into the folder that
+   `https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.43.zip`.
+   Extract the entire **Connect-v0.1.43.zip** directly into the folder that
    contains `People Playground.exe`, and allow Windows to merge the supplied
    `BepInEx` folder. The release already contains BepInEx 5 Unity.Mono-win-x64,
    `winhttp.dll`, `doorstop_config.ini`, the Connect DLL and its icon.
@@ -146,7 +146,8 @@ Current implemented functionality
 - Steam names and asynchronously cached Steam medium avatars (Unity texture work
   stays on the Unity main thread).
 - Independent world-space cursors, host-authoritative mass-aware grab leases,
-  replicated post-start vanilla spawns/despawns and root Rigidbody2D snapshots.
+  replicated post-start vanilla spawns/despawns and root plus nested
+  Rigidbody2D snapshots for compound registered spawnables.
 - Host-only Bot Mode: one to three coloured autonomous cursor agents. Every
   bot owns a Builder, Mover or Cleaner personality profile, but every profile
   retains the same spawn, grab/place and safe-cleanup capabilities. Their

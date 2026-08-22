@@ -2,7 +2,7 @@
 
 [Русская версия](#русская-версия) · [English](#english)
 
-> Current package: **v0.1.42** · protocol **v5** · People Playground **1.27.16**
+> Current package: **v0.1.43** · protocol **v6** · People Playground **1.27.16**
 
 ## English
 
@@ -15,7 +15,7 @@ addresses.
 
 Download the complete plug-and-play ZIP:
 
-**[Connect-v0.1.42.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.42.zip)**
+**[Connect-v0.1.43.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.43.zip)**
 
 1. Close People Playground.
 2. Extract the full ZIP into the folder containing `People Playground.exe`.
@@ -38,6 +38,12 @@ request or host broadcast. This fixes current People Playground builds that
 expose a temporary numeric catalog ordering value instead of a spawn name.
 The complete ZIP also installs the blue **Connect** card in the native Mods
 menu; the actual multiplayer runtime remains the BepInEx plugin opened with F8.
+
+Version 0.1.43 preserves the guest's validated catalog key through host spawn
+and broadcast, which fixes the host seeing an item while the guest remains
+empty. It also renews a held grab correctly and snapshots nested Rigidbody2D
+parts of registered compound objects. This is protocol v6: every player must
+update to this exact ZIP.
 
 ### How multiplayer works
 
@@ -93,7 +99,7 @@ menu; the actual multiplayer runtime remains the BepInEx plugin opened with F8.
 Implemented: Steam lobby/invites, Steam relay handshake, independent coloured
 cursors visible from the Steam Relay handshake onward, host-authoritative grab
 leases, host-led installed-map follow, post-session vanilla catalog spawns,
-despawns, root Rigidbody2D snapshots, bounded Use/Delete actions, automatic
+despawns, root plus nested Rigidbody2D snapshots, bounded Use/Delete actions, automatic
 weapon continuous Use, bot cursors, and host/player settings.
 
 Bots are a host-local sandbox system: their existing cursor visuals, menu,
@@ -132,7 +138,7 @@ Steam-клиент, не открывает порты и не передаёт 
 
 Скачай полный plug-and-play архив:
 
-**[Connect-v0.1.42.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.42.zip)**
+**[Connect-v0.1.43.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.43.zip)**
 
 1. Полностью закрой People Playground.
 2. Распакуй весь ZIP в папку, где лежит `People Playground.exe`.
@@ -154,6 +160,12 @@ Steam-клиент, не открывает порты и не передаёт 
 Playground, которые отдают временное числовое значение сортировки вместо имени
 предмета. Полный ZIP также устанавливает голубую карточку **Connect** в
 обычное меню Mods; сам мультиплеер по-прежнему запускается BepInEx-плагином по F8.
+
+Версия 0.1.43 сохраняет проверенный ключ из каталога гостя на всём пути через
+создание объекта у хоста и broadcast: теперь предмет появляется и у гостя, а
+не только у хоста. Также исправлено непрерывное перетаскивание удерживаемой
+ЛКМ вещи и добавлена синхронизация вложенных Rigidbody2D составных объектов.
+Это протокол v6 — оба игрока должны поставить именно этот ZIP.
 
 ### Как работает мультиплеер
 

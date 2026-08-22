@@ -53,34 +53,46 @@ namespace PPGTogether.BepInEx
             string mapIdentity;
             if (!mapStatusReader.Byte(out mapStatus) || !mapStatusReader.String(out mapIdentity) || mapStatusReader.Remaining != 0 || mapStatus != 3 || mapIdentity != "substructure") return 14;
 
+            Writer rigWriter = new Writer(64);
+            rigWriter.ULong(77UL);
+            rigWriter.String("0/2/1");
+            rigWriter.Float(2.5f);
+            byte[] rigPacket = Wire.Pack(WireMessage.RigSnapshot, WireChannel.Snapshot, 27UL, 0, 12, 14, rigWriter.ToArray());
+            if (!Wire.TryUnpack(rigPacket, out envelope) || envelope.Type != WireMessage.RigSnapshot || envelope.Channel != WireChannel.Snapshot) return 15;
+            Reader rigReader = new Reader(envelope.Payload);
+            ulong rigId;
+            string rigPath;
+            float rigX;
+            if (!rigReader.ULong(out rigId) || !rigReader.String(out rigPath) || !rigReader.Float(out rigX) || rigReader.Remaining != 0 || rigId != 77UL || rigPath != "0/2/1" || rigX != 2.5f) return 16;
+
             Random random = new Random(1729);
             for (int i = 0; i < 10000; i++)
             {
                 byte[] junk = new byte[random.Next(0, 2048)];
                 random.NextBytes(junk);
                 try { Wire.TryUnpack(junk, out envelope); }
-                catch { return 15; }
+                catch { return 17; }
                 try { CursorPayloadCodec.TryDecode(junk, out cursor); }
-                catch { return 16; }
+                catch { return 18; }
             }
 
             Writer writer = new Writer(8);
             writer.Float(float.NaN);
             Reader reader = new Reader(writer.ToArray());
             float value;
-            if (reader.Float(out value)) return 17;
+            if (reader.Float(out value)) return 19;
 
             HostActivationController activations = new HostActivationController();
             string denial;
-            if (!activations.TryBegin(1, 99UL, 10, out denial) || !string.IsNullOrEmpty(denial)) return 18;
-            if (activations.TryBegin(2, 99UL, 10, out denial) || string.IsNullOrEmpty(denial)) return 19;
-            if (!activations.Renew(1, 99UL, 20) || activations.Renew(2, 99UL, 20)) return 20;
+            if (!activations.TryBegin(1, 99UL, 10, out denial) || !string.IsNullOrEmpty(denial)) return 20;
+            if (activations.TryBegin(2, 99UL, 10, out denial) || string.IsNullOrEmpty(denial)) return 21;
+            if (!activations.Renew(1, 99UL, 20) || activations.Renew(2, 99UL, 20)) return 22;
             int continuousCalls = 0;
             activations.FixedUpdate(21, delegate(ulong id) { if (id == 99UL) continuousCalls++; });
-            if (continuousCalls != 1) return 21;
+            if (continuousCalls != 1) return 23;
             activations.End(1, 99UL);
             activations.FixedUpdate(22, delegate(ulong id) { continuousCalls++; });
-            if (continuousCalls != 1 || activations.IsActive(99UL)) return 22;
+            if (continuousCalls != 1 || activations.IsActive(99UL)) return 24;
             return 0;
         }
     }

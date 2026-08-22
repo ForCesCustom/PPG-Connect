@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.43 — Authoritative spawn keys and compound grabs
+
+- Fixed the host-side reply for a guest Tab spawn. The relay now preserves the
+  guest's validated public catalog key all the way through host instantiation
+  and broadcast, instead of re-reading People Playground's transient internal
+  values such as `0` or `zzzzz`. The guest therefore receives the same selected
+  item rather than an empty local world or the host's last catalog selection.
+- Captured the host's own public catalog key at the normal `CatalogBehaviour`
+  boundary, so host-created post-start vanilla items use the same portable key.
+- Completed the drag lease path: host and guests renew a held grab with cursor
+  movement, quick-click grants are cleanly released, and child limbs resolve
+  the registered spawn root. Grab grant/denial events are now logged.
+- Added bounded `RigSnapshot` packets for nested Rigidbody2D parts of a
+  registered spawnable, so compound objects such as people visibly follow
+  host-authoritative motion on guests. This changes the wire protocol to v6;
+  every player must install v0.1.43.
+
 ## 0.1.42 — Current catalog spawn keys
 
 - Fixed post-start vanilla catalog spawns on current People Playground builds:

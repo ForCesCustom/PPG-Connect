@@ -8,7 +8,7 @@ CONNECT — УСТАНОВКА ДЛЯ ДРУГА
 • Steam запущен под разными аккаунтами.
 
 Актуальный ZIP:
-https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.42.zip
+https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.43.zip
 
 Установка
 ---------
@@ -50,3 +50,7 @@ https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.42.zi
 В ZIP также есть обычная карточка **Connect** в меню Mods. Это companion для
 видимости в штатном меню; сам мультиплеер всё равно запускается полной
 BepInEx-частью через F8.
+
+Важно для проверки v0.1.43: оба игрока должны обновиться до этого же ZIP,
+создать новую Lobby и только после статуса PLAYING проверять Tab-spawn и
+перетаскивание удержанием ЛКМ. Старый v0.1.42 не подключится: протокол изменён.

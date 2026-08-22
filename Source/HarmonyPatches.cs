@@ -22,9 +22,24 @@ namespace PPGTogether.BepInEx
         private static bool Prefix(SpawnableAsset e, bool flipped)
         {
             PPGTogetherPlugin plugin = PPGTogetherPlugin.Instance;
-            if (plugin == null || !plugin.ShouldRouteVanillaCatalogSpawn) return true;
-            plugin.RequestCatalogSpawn(e, flipped);
-            return false;
+            if (plugin == null) return true;
+            if (plugin.ShouldRouteVanillaCatalogSpawn)
+            {
+                plugin.RequestCatalogSpawn(e, flipped);
+                return false;
+            }
+            // The item-spawn callback in current PPG can expose a temporary
+            // local ordering key after CatalogBehaviour.Spawn has begun. Keep
+            // the key captured at the public catalog boundary for the host's
+            // subsequent authoritative broadcast.
+            plugin.BeginHostCatalogSpawn(e);
+            return true;
+        }
+
+        private static void Postfix()
+        {
+            PPGTogetherPlugin plugin = PPGTogetherPlugin.Instance;
+            if (plugin != null) plugin.EndHostCatalogSpawn();
         }
     }
 

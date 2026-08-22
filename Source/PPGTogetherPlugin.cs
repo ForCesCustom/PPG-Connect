@@ -22,7 +22,7 @@ namespace PPGTogether.BepInEx
         internal const string PluginGuid = "local.ppgtogether.steam";
         // Keep the GUID stable so this is a seamless update for existing users.
         internal const string PluginName = "Connect";
-        internal const string PluginVersion = "0.1.42";
+        internal const string PluginVersion = "0.1.43";
         internal const string ExpectedGameVersion = "1.27.16";
         internal const string RuntimeMarkerName = "Connect.RuntimeMarker";
         internal const string RuntimeVersionMarkerName = "Connect.RuntimeVersion." + PluginVersion;
@@ -60,6 +60,7 @@ namespace PPGTogether.BepInEx
         private readonly HostActivationController continuousActivations = new HostActivationController();
         private readonly SteamAvatarCache avatars = new SteamAvatarCache();
         private readonly Dictionary<string, float> uiHover = new Dictionary<string, float>();
+        private readonly Stack<string> hostCatalogSpawnKeys = new Stack<string>();
         private SteamRelayTransport transport;
         private RoundedUiTheme ui;
         private Texture2D modIcon;
@@ -143,6 +144,9 @@ namespace PPGTogether.BepInEx
         private LobbyPrivacy privacy = LobbyPrivacy.FriendsOnly;
         private ulong clientGrabId;
         private uint clientGrabToken;
+        private ulong hostGrabId;
+        private uint hostGrabToken;
+        private int suppressHostSpawnObservation;
         private SettingsPage settingsPage;
         private HostSettingsView remoteHostSettings;
         private InstallationHealth installationHealth;
@@ -560,6 +564,9 @@ namespace PPGTogether.BepInEx
             activeMapIdentity = string.Empty;
             clientGrabId = 0;
             clientGrabToken = 0;
+            hostGrabId = 0;
+            hostGrabToken = 0;
+            hostCatalogSpawnKeys.Clear();
             cursors.Clear();
         }
 
@@ -643,6 +650,7 @@ namespace PPGTogether.BepInEx
             if (envelope.Type == WireMessage.GrabUpdate && IsHost) { HandleGrabUpdate(packet, envelope); return; }
             if (envelope.Type == WireMessage.GrabEnd && IsHost) { HandleGrabEnd(packet, envelope); return; }
             if (envelope.Type == WireMessage.Snapshot && !IsHost) { if (sessionActive) HandleSnapshot(envelope); return; }
+            if (envelope.Type == WireMessage.RigSnapshot && !IsHost) { if (sessionActive) HandleRigSnapshot(envelope); return; }
             if (envelope.Type == WireMessage.SpawnRequest && IsHost) { HandleSpawnRequest(packet, envelope); return; }
             // World packets received while a guest is still in the title
             // scene must not instantiate objects there. The host sends a
@@ -1116,6 +1124,9 @@ namespace PPGTogether.BepInEx
             clientHeldActivationRoots.Clear();
             clientGrabId = 0;
             clientGrabToken = 0;
+            hostGrabId = 0;
+            hostGrabToken = 0;
+            hostCatalogSpawnKeys.Clear();
             registry.Clear();
             botSpawnedItems.Clear();
             botSpawnCount = 0;
@@ -1550,7 +1561,7 @@ namespace PPGTogether.BepInEx
             BotSpawnChoice choice = bot.Decision == null ? null : botCatalog.Select(bot.Decision.SpawnKind, bot.Index);
             if (choice == null || choice.Asset == null) { FinishBotAction(bot, now, BotOutcome.MissingTarget); return; }
             SpawnableAsset asset = choice.Asset;
-            GameObject created = SpawnAndReplicate(asset, bot.Position);
+            GameObject created = SpawnAndReplicate(asset, choice.Key, bot.Position, false);
             if (created == null) { FinishBotAction(bot, now, BotOutcome.Denied); return; }
             PPGTogetherIdentity identity = created.GetComponent<PPGTogetherIdentity>();
             if (identity == null || identity.NetId == 0) { FinishBotAction(bot, now, BotOutcome.MissingTarget); return; }
@@ -1895,17 +1906,38 @@ namespace PPGTogether.BepInEx
             Vector2 point = GetWorldCursor();
             if (IsHost)
             {
-                if (!Input.GetKey(KeyCode.LeftAlt)) return;
+                if (!Input.GetKey(KeyCode.LeftAlt))
+                {
+                    if (hostGrabId != 0) grabs.ReleasePeer(0);
+                    hostGrabId = 0;
+                    hostGrabToken = 0;
+                    return;
+                }
                 if (Input.GetMouseButtonDown(0))
                 {
                     ActiveGrab local; string denied;
                     if (!grabs.TryBegin(0, point, hostTick, out local, out denied)) SetStatus(denied);
+                    else
+                    {
+                        hostGrabId = local.NetId;
+                        hostGrabToken = local.Token;
+                    }
                 }
-                if (Input.GetMouseButtonUp(0)) grabs.ReleasePeer(0);
+                if (hostGrabId != 0 && Input.GetMouseButton(0))
+                    grabs.Update(0, hostGrabId, hostGrabToken, point, hostTick);
+                if (Input.GetMouseButtonUp(0))
+                {
+                    grabs.ReleasePeer(0);
+                    hostGrabId = 0;
+                    hostGrabToken = 0;
+                }
                 return;
             }
             if (!sessionActive) return;
-            if (Input.GetMouseButtonDown(0)) SendGrabBegin(point);
+            if (Input.GetMouseButtonDown(0))
+            {
+                SendGrabBegin(point);
+            }
             if (clientGrabId != 0 && Input.GetMouseButton(0) && Time.unscaledTime >= nextGrabAt)
             {
                 nextGrabAt = Time.unscaledTime + (1f / 30f);
@@ -1914,9 +1946,7 @@ namespace PPGTogether.BepInEx
             }
             if (clientGrabId != 0 && Input.GetMouseButtonUp(0))
             {
-                Writer writer = new Writer(16); writer.ULong(clientGrabId); writer.UInt(clientGrabToken);
-                SendToHost(WireMessage.GrabEnd, WireChannel.World, writer.ToArray(), true);
-                clientGrabId = 0; clientGrabToken = 0;
+                EndClientGrab();
             }
         }
 
@@ -1929,25 +1959,43 @@ namespace PPGTogether.BepInEx
         private void HandleGrabBegin(ReceivedPacket packet, Envelope envelope)
         {
             Peer peer; if (!peers.TryGetValue(packet.SteamId, out peer)) return;
-            if (!hostGuestsCanGrabSetting.Value) { SendGrabDenied(packet.Connection, "Guests cannot grab objects in this session."); return; }
+            if (!hostGuestsCanGrabSetting.Value) { Logger.LogInfo("[Connect][Grab] Denied " + peer.Name + ": host disabled guest grabs."); SendGrabDenied(packet.Connection, "Guests cannot grab objects in this session."); return; }
             Reader reader = new Reader(envelope.Payload); float x; float y;
             if (!reader.Float(out x) || !reader.Float(out y) || reader.Remaining != 0) return;
             ActiveGrab grab; string denied;
-            if (!grabs.TryBegin(peer.PeerId, new Vector2(x, y), hostTick, out grab, out denied)) { SendGrabDenied(packet.Connection, denied); return; }
+            if (!grabs.TryBegin(peer.PeerId, new Vector2(x, y), hostTick, out grab, out denied)) { Logger.LogInfo("[Connect][Grab] Denied " + peer.Name + ": " + denied + "."); SendGrabDenied(packet.Connection, denied); return; }
             Writer response = new Writer(16); response.ULong(grab.NetId); response.UInt(grab.Token);
             SendToConnection(packet.Connection, WireMessage.GrabGranted, WireChannel.World, peer.PeerId, response.ToArray(), true);
+            Logger.LogInfo("[Connect][Grab] Granted " + peer.Name + " control of netId=" + grab.NetId + ".");
         }
 
         private void HandleGrabGranted(Envelope envelope)
         {
             Reader reader = new Reader(envelope.Payload);
-            if (!reader.ULong(out clientGrabId) || !reader.UInt(out clientGrabToken) || reader.Remaining != 0) { clientGrabId = 0; clientGrabToken = 0; }
+            if (!reader.ULong(out clientGrabId) || !reader.UInt(out clientGrabToken) || reader.Remaining != 0)
+            {
+                clientGrabId = 0;
+                clientGrabToken = 0;
+                return;
+            }
+            if (!Input.GetMouseButton(0))
+            {
+                // A quick click can be released before the reliable grant
+                // arrives. Close that lease immediately instead of leaving a
+                // stale host-side grab for its timeout period.
+                EndClientGrab();
+                return;
+            }
+            nextGrabAt = 0f;
+            Logger.LogInfo("[Connect][Grab] Host granted netId=" + clientGrabId + ".");
         }
 
         private void HandleGrabDenied(Envelope envelope)
         {
             Reader reader = new Reader(envelope.Payload); string reason;
-            if (reader.String(out reason)) SetStatus(reason);
+            clientGrabId = 0;
+            clientGrabToken = 0;
+            if (reader.String(out reason)) SetStatus("Grab denied: " + reason);
         }
 
         private void HandleGrabUpdate(ReceivedPacket packet, Envelope envelope)
@@ -1965,19 +2013,62 @@ namespace PPGTogether.BepInEx
             if (reader.ULong(out id) && reader.UInt(out token) && reader.Remaining == 0) grabs.End(peer.PeerId, id, token);
         }
 
+        private void EndClientGrab()
+        {
+            if (clientGrabId != 0)
+            {
+                Writer writer = new Writer(16); writer.ULong(clientGrabId); writer.UInt(clientGrabToken);
+                SendToHost(WireMessage.GrabEnd, WireChannel.World, writer.ToArray(), true);
+            }
+            clientGrabId = 0;
+            clientGrabToken = 0;
+        }
+
         private void BroadcastSnapshots()
         {
             foreach (PPGTogetherIdentity identity in registry.All())
             {
                 if (identity == null) continue;
                 PhysicalBehaviour physical = identity.GetComponent<PhysicalBehaviour>();
-                if (physical == null || physical.rigidbody == null) continue;
-                Rigidbody2D body = physical.rigidbody;
-                Writer writer = new Writer(48);
-                writer.ULong(identity.NetId); writer.Float(body.position.x); writer.Float(body.position.y); writer.Float(body.rotation);
-                writer.Float(body.velocity.x); writer.Float(body.velocity.y); writer.Float(body.angularVelocity); writer.Bool(body.simulated); writer.Bool(!body.IsAwake());
-                Broadcast(WireMessage.Snapshot, WireChannel.Snapshot, writer.ToArray(), false);
+                if (physical != null && physical.rigidbody != null)
+                    BroadcastRootSnapshot(identity.NetId, physical.rigidbody);
+
+                // Compound spawnables (notably people) have multiple child
+                // Physics2D bodies. Their root pose alone makes a remote grab
+                // look like an ordinary click, because the limbs continue to
+                // simulate independently on the guest. Relay every nested
+                // body by a deterministic child-index path under the spawned
+                // root. This is still an authoritative host snapshot, never a
+                // client-set transform.
+                PhysicalBehaviour[] bodies = identity.GetComponentsInChildren<PhysicalBehaviour>(true);
+                for (int i = 0; i < bodies.Length; i++)
+                {
+                    PhysicalBehaviour part = bodies[i];
+                    if (part == null || part.rigidbody == null) continue;
+                    if (physical == part) continue;
+                    string path = GetTransformIndexPath(identity.transform, part.transform);
+                    if (path == null) continue;
+                    BroadcastRigSnapshot(identity.NetId, path, part.rigidbody);
+                }
             }
+        }
+
+        private void BroadcastRootSnapshot(ulong netId, Rigidbody2D body)
+        {
+            if (body == null) return;
+            Writer writer = new Writer(48);
+            writer.ULong(netId); writer.Float(body.position.x); writer.Float(body.position.y); writer.Float(body.rotation);
+            writer.Float(body.velocity.x); writer.Float(body.velocity.y); writer.Float(body.angularVelocity); writer.Bool(body.simulated); writer.Bool(!body.IsAwake());
+            Broadcast(WireMessage.Snapshot, WireChannel.Snapshot, writer.ToArray(), false);
+        }
+
+        private void BroadcastRigSnapshot(ulong netId, string path, Rigidbody2D body)
+        {
+            if (body == null || path == null) return;
+            Writer writer = new Writer(72);
+            writer.ULong(netId); writer.String(path); writer.Float(body.position.x); writer.Float(body.position.y); writer.Float(body.rotation);
+            writer.Float(body.velocity.x); writer.Float(body.velocity.y); writer.Float(body.angularVelocity); writer.Bool(body.simulated); writer.Bool(!body.IsAwake());
+            Broadcast(WireMessage.RigSnapshot, WireChannel.Snapshot, writer.ToArray(), false);
         }
 
         private void HandleSnapshot(Envelope envelope)
@@ -1986,19 +2077,78 @@ namespace PPGTogether.BepInEx
             if (!reader.ULong(out id) || !reader.Float(out x) || !reader.Float(out y) || !reader.Float(out rotation) || !reader.Float(out vx) || !reader.Float(out vy) || !reader.Float(out angular) || !reader.Bool(out simulated) || !reader.Bool(out sleeping) || reader.Remaining != 0) return;
             PPGTogetherIdentity identity; if (!registry.TryGet(id, out identity)) return;
             PhysicalBehaviour physical = identity.GetComponent<PhysicalBehaviour>(); if (physical == null || physical.rigidbody == null) return;
-            Rigidbody2D body = physical.rigidbody; Vector2 target = new Vector2(x, y);
+            ApplyRigidbodySnapshot(physical.rigidbody, x, y, rotation, vx, vy, angular, simulated, sleeping);
+        }
+
+        private void HandleRigSnapshot(Envelope envelope)
+        {
+            Reader reader = new Reader(envelope.Payload); ulong id; string path; float x; float y; float rotation; float vx; float vy; float angular; bool simulated; bool sleeping;
+            if (!reader.ULong(out id) || !reader.String(out path) || !reader.Float(out x) || !reader.Float(out y) || !reader.Float(out rotation) || !reader.Float(out vx) || !reader.Float(out vy) || !reader.Float(out angular) || !reader.Bool(out simulated) || !reader.Bool(out sleeping) || reader.Remaining != 0) return;
+            PPGTogetherIdentity identity;
+            if (!registry.TryGet(id, out identity) || identity == null) return;
+            Transform target = FindTransformByIndexPath(identity.transform, path);
+            if (target == null) return;
+            PhysicalBehaviour physical = target.GetComponent<PhysicalBehaviour>();
+            if (physical == null || physical.rigidbody == null) return;
+            ApplyRigidbodySnapshot(physical.rigidbody, x, y, rotation, vx, vy, angular, simulated, sleeping);
+        }
+
+        private static void ApplyRigidbodySnapshot(Rigidbody2D body, float x, float y, float rotation, float vx, float vy, float angular, bool simulated, bool sleeping)
+        {
+            if (body == null) return;
+            Vector2 target = new Vector2(x, y);
             if (Vector2.Distance(body.position, target) > 2f) body.position = target;
             else body.velocity = Vector2.Lerp(body.velocity, new Vector2(vx, vy), 0.35f);
             body.rotation = Mathf.LerpAngle(body.rotation, rotation, 0.4f); body.angularVelocity = Mathf.Lerp(body.angularVelocity, angular, 0.35f); body.simulated = simulated;
             if (sleeping) body.Sleep(); else body.WakeUp();
         }
 
+        private static string GetTransformIndexPath(Transform root, Transform target)
+        {
+            if (root == null || target == null) return null;
+            if (root == target) return string.Empty;
+            List<int> indices = new List<int>();
+            Transform current = target;
+            while (current != null && current != root)
+            {
+                Transform parent = current.parent;
+                if (parent == null) return null;
+                indices.Add(current.GetSiblingIndex());
+                current = parent;
+            }
+            if (current != root) return null;
+            StringBuilder path = new StringBuilder(indices.Count * 3);
+            for (int i = indices.Count - 1; i >= 0; i--)
+            {
+                if (path.Length > 0) path.Append('/');
+                path.Append(indices[i]);
+            }
+            return path.Length <= Wire.MaxStringBytes ? path.ToString() : null;
+        }
+
+        private static Transform FindTransformByIndexPath(Transform root, string path)
+        {
+            if (root == null || path == null) return null;
+            if (path.Length == 0) return root;
+            string[] parts = path.Split('/');
+            if (parts.Length > 32) return null;
+            Transform current = root;
+            for (int i = 0; i < parts.Length; i++)
+            {
+                int index;
+                if (!int.TryParse(parts[i], out index) || index < 0 || index >= current.childCount) return null;
+                current = current.GetChild(index);
+            }
+            return current;
+        }
+
         private void OnItemSpawned(object sender, UserSpawnEventArgs args)
         {
             if (!IsHost || !sessionActive || args == null || args.Instance == null || args.SpawnableAsset == null) return;
+            if (suppressHostSpawnObservation > 0) return;
             PPGTogetherIdentity known;
             if (registry.TryGet(args.Instance, out known)) return;
-            string key = ResolveNetworkSpawnKey(args.SpawnableAsset);
+            string key = hostCatalogSpawnKeys.Count > 0 ? hostCatalogSpawnKeys.Peek() : ResolveNetworkSpawnKey(args.SpawnableAsset);
             if (string.IsNullOrEmpty(key))
             {
                 Logger.LogWarning("[Connect][Spawn] Host catalog spawn has no portable key. The local asset key was " + SafeName(args.SpawnableAsset.NameToOrderBy) + ".");
@@ -2058,12 +2208,12 @@ namespace PPGTogether.BepInEx
             if (!sessionActive) { Logger.LogWarning("[Connect][Spawn] Rejected SpawnRequest from " + peer.Name + ": host session is not active."); SendActionDenied(packet.Connection, "The host map is still loading."); return; }
             if (!hostGuestsCanSpawnSetting.Value) { Logger.LogInfo("[Connect][Spawn] Denied SpawnRequest from " + peer.Name + ": host disabled guest spawns."); SendActionDenied(packet.Connection, "Guests cannot spawn items in this session."); return; }
             Reader reader = new Reader(envelope.Payload); string key; float x; float y; bool flipped;
-            if (!reader.String(out key) || !reader.Float(out x) || !reader.Float(out y) || !reader.Bool(out flipped) || reader.Remaining != 0 || !Finite(x) || !Finite(y)) { Logger.LogWarning("[Connect][Spawn] Rejected malformed SpawnRequest from " + peer.Name + "."); return; }
+            if (!reader.String(out key) || !reader.Float(out x) || !reader.Float(out y) || !reader.Bool(out flipped) || reader.Remaining != 0 || !Finite(x) || !Finite(y) || IsTransientSpawnKey(key)) { Logger.LogWarning("[Connect][Spawn] Rejected malformed SpawnRequest from " + peer.Name + "."); return; }
             Logger.LogInfo("[Connect][Spawn] Received SpawnRequest from " + peer.Name + ": key=" + SafeName(key) + ", x=" + x + ", y=" + y + ", flipped=" + flipped + ".");
             SpawnableAsset asset = ModAPI.FindSpawnable(key);
             if (asset == null || asset.IsLocked) { Logger.LogInfo("[Connect][Spawn] Denied SpawnRequest from " + peer.Name + ": unavailable or locked " + SafeName(key) + "."); SendActionDenied(packet.Connection, "Spawnable is unavailable: " + SafeName(key)); return; }
             if (!TryConsumeGuestSpawn(packet.SteamId)) { Logger.LogInfo("[Connect][Spawn] Denied SpawnRequest from " + peer.Name + ": rate limit."); SendActionDenied(packet.Connection, "Guest spawn limit reached. Try again shortly."); return; }
-            if (SpawnAndReplicate(asset, new Vector2(x, y), flipped) == null)
+            if (SpawnAndReplicate(asset, key, new Vector2(x, y), flipped) == null)
             {
                 Logger.LogWarning("[Connect][Spawn] Host could not create requested item " + SafeName(key) + " for " + peer.Name + ".");
                 SendActionDenied(packet.Connection, "Server object limit reached or host could not create: " + SafeName(key)); return;
@@ -2105,21 +2255,44 @@ namespace PPGTogether.BepInEx
 
         private GameObject SpawnAndReplicate(SpawnableAsset asset, Vector2 position)
         {
-            return SpawnAndReplicate(asset, position, false);
+            return SpawnAndReplicate(asset, ResolveNetworkSpawnKey(asset), position, false);
         }
 
         private GameObject SpawnAndReplicate(SpawnableAsset asset, Vector2 position, bool flipped)
         {
+            return SpawnAndReplicate(asset, ResolveNetworkSpawnKey(asset), position, flipped);
+        }
+
+        // The host receives the guest's public catalog key before spawning.
+        // Preserve that exact portable key rather than re-reading the current
+        // PPG callback value, which can degrade to an internal value such as
+        // "0" or "zzzzz" after the instance has been created.
+        private GameObject SpawnAndReplicate(SpawnableAsset asset, string spawnKey, Vector2 position, bool flipped)
+        {
+            if (string.IsNullOrEmpty(spawnKey))
+            {
+                Logger.LogWarning("[Connect][Spawn] Refused to create an item without a portable spawn key.");
+                return null;
+            }
             if (registry.Count >= MaximumNetworkObjects())
                 return null;
-            GameObject created = SpawnAsset(asset, position, 0f, flipped);
+            GameObject created = null;
+            suppressHostSpawnObservation++;
+            try
+            {
+                created = SpawnAsset(asset, position, 0f, flipped);
+            }
+            finally
+            {
+                suppressHostSpawnObservation--;
+            }
             if (created == null) { Logger.LogWarning("[Connect][Spawn] SpawnAsset returned null for " + SafeName(asset == null ? string.Empty : asset.NameToOrderBy) + "."); return null; }
             PPGTogetherIdentity existing;
             if (!registry.TryGet(created, out existing))
             {
-                existing = registry.RegisterHost(created, asset.NameToOrderBy);
+                existing = registry.RegisterHost(created, spawnKey);
                 if (existing != null) BroadcastSpawn(existing, created);
-                else Logger.LogWarning("[Connect][Spawn] Created item could not receive a network identity: " + SafeName(asset.NameToOrderBy) + ".");
+                else Logger.LogWarning("[Connect][Spawn] Created item could not receive a network identity: " + SafeName(spawnKey) + ".");
             }
             return created;
         }
@@ -2172,6 +2345,20 @@ namespace PPGTogether.BepInEx
             SendToHost(WireMessage.SpawnRequest, WireChannel.World, writer.ToArray(), true);
             Logger.LogInfo("[Connect][Spawn] Intercepted Tab spawn and sent SpawnRequest: key=" + SafeName(key) + ", x=" + point.x + ", y=" + point.y + ", flipped=" + flipped + ".");
             SetStatus("Requested " + SafeName(key) + " from the Tab catalog. Waiting for host authority.");
+        }
+
+        // Called by the host-side CatalogBehaviour.Spawn Harmony boundary.
+        // The original method raises ModAPI.OnItemSpawned before it returns,
+        // whereas the callback object may already contain a transient sort key.
+        internal void BeginHostCatalogSpawn(SpawnableAsset asset)
+        {
+            if (!IsHost || !sessionActive) return;
+            hostCatalogSpawnKeys.Push(ResolveNetworkSpawnKey(asset));
+        }
+
+        internal void EndHostCatalogSpawn()
+        {
+            if (hostCatalogSpawnKeys.Count > 0) hostCatalogSpawnKeys.Pop();
         }
 
         // These helpers are called only from the narrow client-side Harmony
@@ -2384,7 +2571,7 @@ namespace PPGTogether.BepInEx
 
         private bool HostActivate(PPGTogetherIdentity identity)
         {
-            PhysicalBehaviour physical = identity == null ? null : identity.GetComponent<PhysicalBehaviour>();
+            PhysicalBehaviour physical = GetPrimaryPhysical(identity);
             if (physical == null) return false;
             ActivationPropagation activation = new ActivationPropagation(true, 0, physical.gameObject);
             activation.Target = physical.gameObject;
@@ -2400,7 +2587,7 @@ namespace PPGTogether.BepInEx
             {
                 return;
             }
-            PhysicalBehaviour physical = identity.GetComponent<PhysicalBehaviour>();
+            PhysicalBehaviour physical = GetPrimaryPhysical(identity);
             if (physical == null)
             {
                 return;
@@ -2412,7 +2599,7 @@ namespace PPGTogether.BepInEx
 
         private bool HostDelete(PPGTogetherIdentity identity)
         {
-            PhysicalBehaviour physical = identity == null ? null : identity.GetComponent<PhysicalBehaviour>();
+            PhysicalBehaviour physical = GetPrimaryPhysical(identity);
             if (physical == null || !physical.Deletable || grabs.IsActive(identity.NetId) || continuousActivations.IsActive(identity.NetId)) return false;
             ulong netId = identity.NetId;
             GameObject target = identity.gameObject;
@@ -2430,7 +2617,7 @@ namespace PPGTogether.BepInEx
             if (peer == null || identity == null) return false;
             RemoteCursor cursor;
             if (!cursors.TryGetValue(peer.PeerId, out cursor) || cursor == null) return false;
-            PhysicalBehaviour physical = identity.GetComponent<PhysicalBehaviour>();
+            PhysicalBehaviour physical = GetPrimaryPhysical(identity);
             if (physical == null) return false;
             Vector2 position = physical.transform.position;
             return (position - cursor.Target).sqrMagnitude <= 36f;
@@ -2439,6 +2626,13 @@ namespace PPGTogether.BepInEx
         private static PPGTogetherIdentity GetIdentity(PhysicalBehaviour physical)
         {
             return physical == null ? null : physical.GetComponentInParent<PPGTogetherIdentity>();
+        }
+
+        private static PhysicalBehaviour GetPrimaryPhysical(PPGTogetherIdentity identity)
+        {
+            if (identity == null) return null;
+            PhysicalBehaviour physical = identity.GetComponent<PhysicalBehaviour>();
+            return physical ?? identity.GetComponentInChildren<PhysicalBehaviour>();
         }
 
         private bool CanClientSendWorldRequest()
@@ -2501,11 +2695,11 @@ namespace PPGTogether.BepInEx
         private void Cleanup(bool leaveSteamLobby)
         {
             RestoreHostPhysicsSettings();
-            sessionActive = false; clientPeerId = 0; clientGrabId = 0; clientGrabToken = 0;
+            sessionActive = false; clientPeerId = 0; clientGrabId = 0; clientGrabToken = 0; hostGrabId = 0; hostGrabToken = 0;
             hostStartAwaitingMap = false; clientSessionStartReceived = false; clientMapLoadPending = false; clientMapLoadIssued = false; clientMapInstanceLoaded = false; clientMapSceneTransitionPending = false; clientConnectSceneSwitchCall = false;
             clientMapLoadDeadline = 0f; clientMapReadyAt = 0f; nextClientMapProbeAt = 0f; nextClientMapLoadAttemptAt = 0f; clientRequestedMapIdentity = string.Empty; clientRequestedSceneName = string.Empty; activeMapIdentity = string.Empty;
             botsEnabled = false; botSpawnCount = 0; ReleaseBots(); bots.Clear(); botSpawnedItems.Clear(); botWorld.Clear(); botCatalog.Clear();
-            grabs.Clear(); continuousActivations.Clear(); clientHeldActivationRoots.Clear(); registry.Clear(); peers.Clear(); cursors.Clear(); avatars.Clear(); guestSpawnWindows.Clear(); guestInteractionWindows.Clear(); remoteHostSettings = new HostSettingsView();
+            grabs.Clear(); continuousActivations.Clear(); clientHeldActivationRoots.Clear(); hostCatalogSpawnKeys.Clear(); registry.Clear(); peers.Clear(); cursors.Clear(); avatars.Clear(); guestSpawnWindows.Clear(); guestInteractionWindows.Clear(); remoteHostSettings = new HostSettingsView();
             if (transport != null) transport.Close();
             if (leaveSteamLobby && lobby.HasValue) lobby.Value.Leave();
             lobby = null; nonce = 0;
@@ -3205,7 +3399,7 @@ namespace PPGTogether.BepInEx
         }
         // NameToOrderBy is normally the public catalog key, but recent People
         // Playground builds can expose a transient numeric ordering value (for
-        // example "0") to the catalog Spawn Harmony callback.  Never send that
+        // example "0" or "zzzzz") to the catalog Spawn Harmony callback. Never send that
         // placeholder across the relay: resolve one of the asset's stable local
         // aliases that ModAPI can actually create on both peers.
         private static string ResolveNetworkSpawnKey(SpawnableAsset asset)
@@ -3216,7 +3410,7 @@ namespace PPGTogether.BepInEx
             for (int i = 0; i < candidates.Length; i++)
             {
                 string candidate = candidates[i];
-                if (string.IsNullOrEmpty(candidate) || candidate == "0") continue;
+                if (IsTransientSpawnKey(candidate)) continue;
                 try
                 {
                     if (ModAPI.FindSpawnable(candidate) != null) return candidate;
@@ -3224,6 +3418,14 @@ namespace PPGTogether.BepInEx
                 catch (Exception) { }
             }
             return string.Empty;
+        }
+        private static bool IsTransientSpawnKey(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return true;
+            if (value == "0" || value == "zzzzz") return true;
+            for (int i = 0; i < value.Length; i++)
+                if (value[i] < '0' || value[i] > '9') return false;
+            return true;
         }
         private static Vector2 GetWorldCursor() { Camera activeCamera = GetActiveCamera(); return Global.main != null ? (Vector2)Global.main.MousePosition : (activeCamera != null ? (Vector2)activeCamera.ScreenToWorldPoint(Input.mousePosition) : Vector2.zero); }
         private static bool Finite(float value) { return !float.IsNaN(value) && !float.IsInfinity(value); }

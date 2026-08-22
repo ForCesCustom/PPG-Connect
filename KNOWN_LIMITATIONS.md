@@ -1,13 +1,13 @@
-# Known limitations — Connect BepInEx edition v0.1.42
+# Known limitations — Connect BepInEx edition v0.1.43
 
 - Every player must extract the same complete Connect ZIP into the game root.
   It already contains BepInEx 5 x64, but Connect remains a non-standard loader
   with Harmony patches rather than a normal People Playground source mod.
 - This environment cannot run an automated two-account Steam test. The manual
   relay, handshake, map-load and spawn-request test established that current
-  People Playground can expose a temporary catalog key of `0`; v0.1.42 resolves
-  portable local aliases before spawning. The next two-account run should
-  confirm replicated post-start vanilla spawns on both peers.
+  People Playground can expose temporary catalog keys such as `0` or `zzzzz`.
+  v0.1.43 keeps the validated guest key through host instantiation and broadcast;
+  the next two-account run should confirm representative Tab spawns on both peers.
 - Join-in-progress does not reconstruct pre-existing map objects. Start with an
   empty map, create the lobby, press **START & SYNC MAP** and, if needed, choose
   the host map; then use the normal Tab catalog for objects expected to
@@ -16,9 +16,10 @@
   after session start once it reports `PLAYING`, but objects present before the
   session started are still intentionally outside this first world-transfer
   implementation.
-- Replication is limited to post-start vanilla spawnables with a root Rigidbody2D
-  and their root pose/velocity. Existing objects, ragdoll limbs, dismemberment,
-  joints, wires, custom components, explosions, projectile/damage state,
+- Replication covers post-start vanilla spawnables with root and nested
+  Rigidbody2D pose/velocity snapshots, including compound-object grab motion.
+  Existing objects, ragdoll biology/dismemberment, joints, wires, custom components,
+  explosions, projectile/damage state,
   freeze, rotate, undo and save/load are not supported. Map selection and map
   changes now follow the host by installed `Map.UniqueIdentity` through the
   game's normal sandbox scene transition, but the map itself must exist locally

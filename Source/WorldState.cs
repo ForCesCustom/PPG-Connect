@@ -133,8 +133,17 @@ namespace PPGTogether.BepInEx
             if (collider == null) { denial = "No object under cursor"; return false; }
             PhysicalBehaviour physical = collider.GetComponentInParent<PhysicalBehaviour>();
             if (physical == null || physical.rigidbody == null || !physical.Selectable) { denial = "Object cannot be grabbed"; return false; }
-            PPGTogetherIdentity identity = physical.GetComponent<PPGTogetherIdentity>();
-            if (identity == null || identity.NetId == 0) { denial = "Object was created before this network session"; return false; }
+            // People and some compound vanilla items put their colliders and
+            // Rigidbody2D instances on child objects. The network identity is
+            // deliberately attached to the spawned root, so a child limb must
+            // resolve its parent identity before it can receive a grab lease.
+            PPGTogetherIdentity identity = physical.GetComponentInParent<PPGTogetherIdentity>();
+            PPGTogetherIdentity registered;
+            if (identity == null || identity.NetId == 0 || !registry.TryGet(identity.NetId, out registered) || registered != identity)
+            {
+                denial = "Object was created before this network session";
+                return false;
+            }
             ActiveGrab existing;
             if (activeByNetId.TryGetValue(identity.NetId, out existing) && existing.ExpiresAtTick >= tick && existing.PeerId != peerId)
             {

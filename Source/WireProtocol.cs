@@ -41,7 +41,11 @@ namespace PPGTogether.BepInEx
         // Reliable client-to-host progress update for the host's lobby panel.
         // It is informational only: the host still owns the map directive and
         // never accepts a map identity or scene name from this message.
-        ClientMapStatus = 23
+        ClientMapStatus = 23,
+        // Unreliable host-to-client pose for a Rigidbody2D nested inside a
+        // registered spawnable (for example a ragdoll limb). The target is a
+        // bounded child-index path below the authoritative spawn root.
+        RigSnapshot = 24
     }
 
     internal enum WireChannel : byte
@@ -55,7 +59,7 @@ namespace PPGTogether.BepInEx
     internal static class Wire
     {
         internal const uint Magic = 0x54475050;
-        internal const ushort ProtocolVersion = 5;
+        internal const ushort ProtocolVersion = 6;
         internal const int HeaderSize = 30;
         internal const int MaxPacketBytes = 49152;
         internal const int MaxStringBytes = 256;
