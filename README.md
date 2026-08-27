@@ -2,7 +2,7 @@
 
 [Русская версия](#русская-версия) · [English](#english)
 
-> Current package: **v0.1.43** · protocol **v6** · People Playground **1.27.16**
+> Current package: **v0.1.44** · protocol **v7** · People Playground **1.27.17**
 
 ## English
 
@@ -15,7 +15,7 @@ addresses.
 
 Download the complete plug-and-play ZIP:
 
-**[Connect-v0.1.43.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.43.zip)**
+**[Connect-v0.1.44.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.44.zip)**
 
 1. Close People Playground.
 2. Extract the full ZIP into the folder containing `People Playground.exe`.
@@ -39,11 +39,14 @@ expose a temporary numeric catalog ordering value instead of a spawn name.
 The complete ZIP also installs the blue **Connect** card in the native Mods
 menu; the actual multiplayer runtime remains the BepInEx plugin opened with F8.
 
-Version 0.1.43 preserves the guest's validated catalog key through host spawn
-and broadcast, which fixes the host seeing an item while the guest remains
-empty. It also renews a held grab correctly and snapshots nested Rigidbody2D
-parts of registered compound objects. This is protocol v6: every player must
-update to this exact ZIP.
+Version 0.1.44 fixes the remaining catalog mismatch in People Playground's
+own instantiation path: a network spawn now scopes the requested asset instead
+of accidentally creating whichever Tab item is selected locally. It batches
+compound-ragdoll poses, protects reliable Spawn traffic from snapshot floods,
+replays a bounded world baseline twice after a guest becomes `PLAYING`, and
+names the requested Connect root during a grab. Replica poses are applied
+directly from the host. This is protocol v7: every player must update to this
+exact ZIP.
 
 ### How multiplayer works
 
@@ -90,7 +93,7 @@ update to this exact ZIP.
 | `F8` | Open/close Connect panel |
 | `F10` | Network diagnostics |
 | `Tab` | Your own normal People Playground catalog |
-| Left mouse | Host-authoritative object drag |
+| Left mouse | Host-authoritative drag of a registered Connect object; a Tab placement click never starts a grab |
 | Configured `activateDirect` key | Host-validated Use; holding it supports continuous Use for automatic vanilla firearms |
 | Context menu Activate/Delete | Host-validated action on a registered Connect object |
 
@@ -118,7 +121,7 @@ from this repository.
 
 ### Build and verification
 
-The plugin is compiled against the local People Playground `1.27.16` Mono
+The plugin is compiled against the local People Playground `1.27.17` Mono
 assemblies and Facepunch Steamworks wrapper. Current checks include a full
 compile, 10,000 malformed packet fuzz cases, cursor codec tests, continuous
 Use lease tests and bot-brain smoke tests. A real two-account Steam session
@@ -138,7 +141,7 @@ Steam-клиент, не открывает порты и не передаёт 
 
 Скачай полный plug-and-play архив:
 
-**[Connect-v0.1.43.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.43.zip)**
+**[Connect-v0.1.44.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.44.zip)**
 
 1. Полностью закрой People Playground.
 2. Распакуй весь ZIP в папку, где лежит `People Playground.exe`.
@@ -161,11 +164,13 @@ Playground, которые отдают временное числовое зн
 предмета. Полный ZIP также устанавливает голубую карточку **Connect** в
 обычное меню Mods; сам мультиплеер по-прежнему запускается BepInEx-плагином по F8.
 
-Версия 0.1.43 сохраняет проверенный ключ из каталога гостя на всём пути через
-создание объекта у хоста и broadcast: теперь предмет появляется и у гостя, а
-не только у хоста. Также исправлено непрерывное перетаскивание удерживаемой
-ЛКМ вещи и добавлена синхронизация вложенных Rigidbody2D составных объектов.
-Это протокол v6 — оба игрока должны поставить именно этот ZIP.
+Версия 0.1.44 исправляет оставшееся расхождение самого создания предмета в
+People Playground: сетевой спавн временно выбирает именно запрошенный asset,
+а не предмет, выделенный в Tab у локального игрока. Части рэгдоллов теперь
+идут компактным пакетом, надёжные Spawn защищены от потока snapshot, baseline
+после `PLAYING` проходит два ограниченных круга, а grab передаёт точный Connect
+root. Поза реплики применяется напрямую от хоста. Это протокол v7 — оба
+игрока должны поставить именно этот ZIP.
 
 ### Как работает мультиплеер
 
@@ -208,7 +213,7 @@ Playground, которые отдают временное числовое зн
 | `F8` | Открыть/закрыть Connect |
 | `F10` | Сетевая диагностика |
 | `Tab` | Твой обычный каталог People Playground |
-| ЛКМ | Авторитетное перетаскивание через хост |
+| ЛКМ | Авторитетное перетаскивание зарегистрированного Connect-объекта через хост; клик постановки из Tab не считается grab |
 | Клавиша `activateDirect` | Подтверждённый хостом Use; удержание поддерживает автоматическое vanilla-оружие |
 | Activate/Delete из ПКМ | Подтверждённое действие для зарегистрированного Connect-объекта |
 
@@ -235,7 +240,7 @@ Connect не принимает по сети файлы, DLL, команды, �
 
 ### Сборка и проверки
 
-Плагин собран против локальной People Playground `1.27.16` и её Facepunch
+Плагин собран против локальной People Playground `1.27.17` и её Facepunch
 Steamworks. Пройдены compile, 10 000 fuzz-пакетов, cursor codec, continuous Use
 lease и Bot Brain smoke tests. Для настоящего Steam-теста всё ещё нужны два
 разных Steam-аккаунта/устройства.

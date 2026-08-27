@@ -1,4 +1,4 @@
-# Connect relay protocol v6
+# Connect relay protocol v7
 
 The BepInEx plugin sends this binary protocol through the game-supplied
 Facepunch `SteamNetworkingSockets` relay connection. It never serializes CLR
@@ -45,10 +45,11 @@ host rejects an unknown peer, mismatched peer ID, stale map identity, malformed
 payload, or status outside that small range; it never accepts a client-selected
 map or scene name.
 
-`RigSnapshot` (`24`) is an unreliable host-to-client Snapshot message for one
-Rigidbody2D nested below a registered spawned root. It carries that root NetId,
-a bounded child-index path and pose/velocity. Only the host emits it; clients
-never submit a body transform.
+`RigSnapshot` (`24`) is an unreliable host-to-client Snapshot message for a
+bounded batch of Rigidbody2D instances nested below one registered spawned
+root. Each entry carries a bounded child-index path and host pose. Only the
+host emits it; clients never submit a body transform. Batching prevents a
+compound ragdoll from crowding reliable Spawn messages out of the relay queue.
 
 ## Envelope
 
@@ -57,7 +58,7 @@ All fields are little-endian. The fixed header is 30 bytes.
 | Offset | Bytes | Field |
 |---:|---:|---|
 | 0 | 4 | Magic `0x54475050` (`PPGT`, retained for wire compatibility) |
-| 4 | 2 | Protocol version (`6`) |
+| 4 | 2 | Protocol version (`7`) |
 | 6 | 1 | Message type |
 | 7 | 1 | Logical channel |
 | 8 | 8 | Session nonce |
@@ -89,8 +90,9 @@ finite floats before a handler can apply the message. A stale nonce is dropped.
 - `Welcome` / `Reject`: assigned peer ID or bounded readable rejection reason.
 - `Cursor`: `Vector2` world position, button mask and UI-busy flag; no screen
   pixels or camera transform is sent.
-- `GrabBegin`, `GrabGranted`, `GrabDenied`, `GrabUpdate`, `GrabEnd`: a host-side
-  overlap test chooses the actual body and emits an expiring lease token.
+- `GrabBegin`, `GrabGranted`, `GrabDenied`, `GrabUpdate`, `GrabEnd`: a guest
+  names the registered root under its cursor; the host validates a child collider
+  inside that root and emits an expiring lease token.
 - `SpawnRequest`, `Spawn`, `Despawn`: catalog key plus bounded pose, with actual
   object creation performed by the host only.
 - `InteractionRequest`: one-byte action plus an eight-byte root NetId. The host
@@ -99,9 +101,9 @@ finite floats before a handler can apply the message. A stale nonce is dropped.
   a lease expires if the client disconnects or stops renewing it. It never
   invokes a method name supplied by a client.
 - `Snapshot`: registered root network ID plus root Rigidbody2D pose/velocity.
-- `RigSnapshot`: registered root ID plus a bounded child-index path and one
-  nested Rigidbody2D pose/velocity; used for compound spawnables such as
-  people.
+- `RigSnapshot`: registered root ID plus up to 48 child-index-path entries and
+  their nested Rigidbody2D host poses; used for compound spawnables such as
+  people. Older host ticks are ignored by replicas.
 - `MapLoad`: host-selected installed-map identity. The client displays a clear
   local-map/timeout status if that identity cannot be resolved; it never enters
   the active gameplay state while still at the title screen.

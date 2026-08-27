@@ -22,8 +22,10 @@ namespace PPGTogether.BepInEx
         internal const string PluginGuid = "local.ppgtogether.steam";
         // Keep the GUID stable so this is a seamless update for existing users.
         internal const string PluginName = "Connect";
-        internal const string PluginVersion = "0.1.43";
-        internal const string ExpectedGameVersion = "1.27.16";
+        internal const string PluginVersion = "0.1.44";
+        // Fallback only. The handshake and panel use Application.version so a
+        // Steam-updated host cannot silently pretend to be an older build.
+        internal const string ExpectedGameVersion = "1.27.17";
         internal const string RuntimeMarkerName = "Connect.RuntimeMarker";
         internal const string RuntimeVersionMarkerName = "Connect.RuntimeVersion." + PluginVersion;
 
@@ -45,6 +47,10 @@ namespace PPGTogether.BepInEx
         // 4 MiB cap remains bounded while avoiding a false "invalid size"
         // warning and a missing panel icon.
         private const int MaximumConnectIconBytes = 4 * 1024 * 1024;
+        private const int MaximumCompoundBodiesPerSnapshot = 48;
+        private const int WorldBaselineChunkSize = 16;
+        private const float WorldBaselineIntervalSeconds = 0.45f;
+        private const int WorldBaselineCycles = 2;
 
         internal static PPGTogetherPlugin Instance;
 
@@ -153,6 +159,9 @@ namespace PPGTogether.BepInEx
         private readonly Dictionary<ulong, SpawnRateWindow> guestSpawnWindows = new Dictionary<ulong, SpawnRateWindow>();
         private readonly Dictionary<ulong, SpawnRateWindow> guestInteractionWindows = new Dictionary<ulong, SpawnRateWindow>();
         private readonly HashSet<ulong> clientHeldActivationRoots = new HashSet<ulong>();
+        private readonly Dictionary<ulong, uint> clientRootSnapshotTicks = new Dictionary<ulong, uint>();
+        private readonly Dictionary<ulong, uint> clientRigSnapshotTicks = new Dictionary<ulong, uint>();
+        private bool suppressClientGrabUntilMouseUp;
 
         private enum LobbyPrivacy
         {
@@ -274,6 +283,7 @@ namespace PPGTogether.BepInEx
                     nextSnapshotAt = Time.unscaledTime + (1f / SnapshotRateHz());
                     BroadcastSnapshots();
                 }
+                if (IsHost) PumpRegisteredWorldBaselines();
             }
             UpdateCursorInterpolation();
         }
@@ -600,7 +610,7 @@ namespace PPGTogether.BepInEx
             Writer writer = new Writer(128);
             writer.UShort(Wire.ProtocolVersion);
             writer.String(PluginVersion);
-            writer.String(ExpectedGameVersion);
+            writer.String(LocalGameVersion);
             writer.ULong((ulong)SteamClient.SteamId);
             writer.ULong((ulong)lobby.Value.Id);
             writer.ULong(nonce);
@@ -625,7 +635,7 @@ namespace PPGTogether.BepInEx
                     Logger.LogWarning("[Connect][Protocol] Dropped stale relay packet " + envelope.Type + ": sender=" + packet.SteamId + ", packet nonce=" + envelope.Nonce + ", active nonce=" + nonce + ".");
                     continue;
                 }
-                if (envelope.Type != WireMessage.Cursor && envelope.Type != WireMessage.Snapshot && envelope.Type != WireMessage.GrabUpdate)
+                if (envelope.Type != WireMessage.Cursor && envelope.Type != WireMessage.Snapshot && envelope.Type != WireMessage.RigSnapshot && envelope.Type != WireMessage.GrabUpdate)
                     Logger.LogInfo("[Connect][Protocol] Received " + envelope.Type + " from " + packet.SteamId + " on connection " + packet.Connection.Id + ", peer=" + envelope.PeerId + ", bytes=" + envelope.Payload.Length + ".");
                 HandlePacket(packet, envelope);
             }
@@ -673,7 +683,7 @@ namespace PPGTogether.BepInEx
             }
             if (protocol != Wire.ProtocolVersion) { Logger.LogWarning("[Connect][Transport] Rejected client with protocol " + protocol + "; host requires " + Wire.ProtocolVersion + "."); SendReject(packet.Connection, "Wrong protocol version"); return; }
             if (modVersion != PluginVersion) { Logger.LogWarning("[Connect][Transport] Rejected client with Connect " + SafeName(modVersion) + "; host requires " + PluginVersion + "."); SendReject(packet.Connection, "Wrong Connect version"); return; }
-            if (gameVersion != ExpectedGameVersion) { Logger.LogWarning("[Connect][Transport] Rejected client with People Playground " + SafeName(gameVersion) + "."); SendReject(packet.Connection, "Wrong People Playground version"); return; }
+            if (gameVersion != LocalGameVersion) { Logger.LogWarning("[Connect][Transport] Rejected client with People Playground " + SafeName(gameVersion) + "; host is " + LocalGameVersion + "."); SendReject(packet.Connection, "Wrong People Playground version"); return; }
             if (!lobby.HasValue || claimedSteam != packet.SteamId || lobbyId != (ulong)lobby.Value.Id || suppliedNonce != nonce || !IsLobbyMember((SteamId)claimedSteam))
             {
                 Logger.LogWarning("[Connect][Transport] Rejected Hello identity: transport=" + packet.SteamId + ", claimed=" + claimedSteam + ", lobby=" + lobbyId + ", activeLobby=" + (lobby.HasValue ? ((ulong)lobby.Value.Id).ToString() : "none") + ", nonce=" + suppliedNonce + ".");
@@ -771,7 +781,7 @@ namespace PPGTogether.BepInEx
             peer.MapIdentity = mapIdentity;
             Logger.LogInfo("[Connect][Sync] " + peer.Name + " reported " + PeerMapStatusLabel(peer.MapStatus) + " for host map " + mapIdentity + ".");
             if (peer.MapStatus == PeerMapStatus.Playing && previousStatus != PeerMapStatus.Playing)
-                SendRegisteredWorldBaseline(peer);
+                BeginRegisteredWorldBaseline(peer);
             SetStatus(peer.Name + ": " + PeerMapStatusLabel(peer.MapStatus) + " host map.");
         }
 
@@ -1020,7 +1030,7 @@ namespace PPGTogether.BepInEx
             }
 
             int childrenBefore = loader.transform == null ? -1 : loader.transform.childCount;
-            // In People Playground 1.27.16 MapLoadOverride is honoured only
+            // In People Playground 1.27.17 MapLoadOverride is honoured only
             // in Application.isEditor. Runtime MapLoaderBehaviour.Load()
             // instantiates its public static CurrentMap instead. Set both so
             // this remains safe in either context, then use the game's own
@@ -1099,19 +1109,62 @@ namespace PPGTogether.BepInEx
         // already been spawned by the host or another player.  Steam Lobby
         // metadata intentionally never contains world data, so send a bounded
         // per-peer baseline only after that guest reports PLAYING for the exact
-        // current host map. Reliable Spawn events establish IDs first; normal
-        // host snapshots then keep those objects moving.
-        private void SendRegisteredWorldBaseline(Peer peer)
+        // current host map. The compact bounded resend is deliberately repeated
+        // twice: a guest can recover from a transient catalog/relay race without
+        // letting a large world flood reliable traffic forever.
+        private void BeginRegisteredWorldBaseline(Peer peer)
         {
             if (!IsHost || peer == null || peer.Connection == null) return;
-            int sent = 0;
-            foreach (PPGTogetherIdentity identity in registry.All())
+            peer.BaselineCursor = 0;
+            peer.BaselineCyclesRemaining = WorldBaselineCycles;
+            peer.NextBaselineAt = 0f;
+            Logger.LogInfo("[Connect][Sync] Queued " + WorldBaselineCycles + " registered-world reconciliation pass(es) for " + peer.Name + ".");
+        }
+
+        private void PumpRegisteredWorldBaselines()
+        {
+            if (!IsHost || !sessionActive) return;
+            float now = Time.unscaledTime;
+            foreach (Peer peer in peers.Values)
             {
-                if (identity == null || identity.gameObject == null || string.IsNullOrEmpty(identity.SpawnKey)) continue;
-                SendSpawnToConnection(peer.Connection, peer.PeerId, identity, identity.gameObject);
-                sent++;
+                if (peer == null || peer.BaselineCyclesRemaining <= 0 || peer.Connection == null || peer.MapStatus != PeerMapStatus.Playing ||
+                    !string.Equals(peer.MapIdentity, activeMapIdentity, StringComparison.Ordinal) || now < peer.NextBaselineAt)
+                    continue;
+                SendRegisteredWorldBaselineChunk(peer);
+                peer.NextBaselineAt = now + WorldBaselineIntervalSeconds;
             }
-            Logger.LogInfo("[Connect][Sync] Sent registered-world baseline to " + peer.Name + ": " + sent + " object(s).");
+        }
+
+        private void SendRegisteredWorldBaselineChunk(Peer peer)
+        {
+            List<PPGTogetherIdentity> identities = new List<PPGTogetherIdentity>();
+            foreach (PPGTogetherIdentity identity in registry.All())
+                if (identity != null && identity.gameObject != null && !string.IsNullOrEmpty(identity.SpawnKey))
+                    identities.Add(identity);
+            if (identities.Count == 0)
+            {
+                peer.BaselineCyclesRemaining = 0;
+                return;
+            }
+            identities.Sort(delegate(PPGTogetherIdentity left, PPGTogetherIdentity right)
+            {
+                return left.NetId < right.NetId ? -1 : (left.NetId > right.NetId ? 1 : 0);
+            });
+            int count = Mathf.Min(WorldBaselineChunkSize, identities.Count);
+            int start = peer.BaselineCursor % identities.Count;
+            for (int i = 0; i < count; i++)
+            {
+                PPGTogetherIdentity identity = identities[(start + i) % identities.Count];
+                SendSpawnToConnection(peer.Connection, peer.PeerId, identity, identity.gameObject);
+            }
+            int next = start + count;
+            peer.BaselineCursor = next % identities.Count;
+            if (next >= identities.Count)
+            {
+                peer.BaselineCyclesRemaining--;
+                if (peer.BaselineCyclesRemaining == 0)
+                    Logger.LogInfo("[Connect][Sync] Registered-world reconciliation complete for " + peer.Name + ".");
+            }
         }
 
         private void ResetNetworkWorldForMapTransition()
@@ -1126,6 +1179,9 @@ namespace PPGTogether.BepInEx
             clientGrabToken = 0;
             hostGrabId = 0;
             hostGrabToken = 0;
+            suppressClientGrabUntilMouseUp = false;
+            clientRootSnapshotTicks.Clear();
+            clientRigSnapshotTicks.Clear();
             hostCatalogSpawnKeys.Clear();
             registry.Clear();
             botSpawnedItems.Clear();
@@ -1934,6 +1990,11 @@ namespace PPGTogether.BepInEx
                 return;
             }
             if (!sessionActive) return;
+            if (suppressClientGrabUntilMouseUp)
+            {
+                if (!Input.GetMouseButton(0)) suppressClientGrabUntilMouseUp = false;
+                else return;
+            }
             if (Input.GetMouseButtonDown(0))
             {
                 SendGrabBegin(point);
@@ -1952,7 +2013,15 @@ namespace PPGTogether.BepInEx
 
         private void SendGrabBegin(Vector2 point)
         {
-            Writer writer = new Writer(12); writer.Float(point.x); writer.Float(point.y);
+            SelectionController selection = SelectionController.Main;
+            PhysicalBehaviour hovered = selection == null ? null : selection.CurrentlyUnderMouse;
+            PPGTogetherIdentity identity = GetIdentity(hovered);
+            if (identity == null || identity.NetId == 0)
+            {
+                SetStatus("Grab a Connect object, not a local-only object.");
+                return;
+            }
+            Writer writer = new Writer(20); writer.ULong(identity.NetId); writer.Float(point.x); writer.Float(point.y);
             SendToHost(WireMessage.GrabBegin, WireChannel.World, writer.ToArray(), true);
         }
 
@@ -1960,10 +2029,10 @@ namespace PPGTogether.BepInEx
         {
             Peer peer; if (!peers.TryGetValue(packet.SteamId, out peer)) return;
             if (!hostGuestsCanGrabSetting.Value) { Logger.LogInfo("[Connect][Grab] Denied " + peer.Name + ": host disabled guest grabs."); SendGrabDenied(packet.Connection, "Guests cannot grab objects in this session."); return; }
-            Reader reader = new Reader(envelope.Payload); float x; float y;
-            if (!reader.Float(out x) || !reader.Float(out y) || reader.Remaining != 0) return;
+            Reader reader = new Reader(envelope.Payload); ulong id; float x; float y;
+            if (!reader.ULong(out id) || !reader.Float(out x) || !reader.Float(out y) || reader.Remaining != 0) return;
             ActiveGrab grab; string denied;
-            if (!grabs.TryBegin(peer.PeerId, new Vector2(x, y), hostTick, out grab, out denied)) { Logger.LogInfo("[Connect][Grab] Denied " + peer.Name + ": " + denied + "."); SendGrabDenied(packet.Connection, denied); return; }
+            if (!grabs.TryBegin(peer.PeerId, id, new Vector2(x, y), hostTick, out grab, out denied)) { Logger.LogInfo("[Connect][Grab] Denied " + peer.Name + ": " + denied + "."); SendGrabDenied(packet.Connection, denied); return; }
             Writer response = new Writer(16); response.ULong(grab.NetId); response.UInt(grab.Token);
             SendToConnection(packet.Connection, WireMessage.GrabGranted, WireChannel.World, peer.PeerId, response.ToArray(), true);
             Logger.LogInfo("[Connect][Grab] Granted " + peer.Name + " control of netId=" + grab.NetId + ".");
@@ -2034,13 +2103,12 @@ namespace PPGTogether.BepInEx
                     BroadcastRootSnapshot(identity.NetId, physical.rigidbody);
 
                 // Compound spawnables (notably people) have multiple child
-                // Physics2D bodies. Their root pose alone makes a remote grab
-                // look like an ordinary click, because the limbs continue to
-                // simulate independently on the guest. Relay every nested
-                // body by a deterministic child-index path under the spawned
-                // root. This is still an authoritative host snapshot, never a
-                // client-set transform.
+                // Physics2D bodies. Send one bounded packet per spawned root,
+                // not one Steam message per limb: the latter can starve a
+                // reliable Spawn behind a transient snapshot flood.
                 PhysicalBehaviour[] bodies = identity.GetComponentsInChildren<PhysicalBehaviour>(true);
+                List<PhysicalBehaviour> parts = new List<PhysicalBehaviour>();
+                List<string> paths = new List<string>();
                 for (int i = 0; i < bodies.Length; i++)
                 {
                     PhysicalBehaviour part = bodies[i];
@@ -2048,8 +2116,11 @@ namespace PPGTogether.BepInEx
                     if (physical == part) continue;
                     string path = GetTransformIndexPath(identity.transform, part.transform);
                     if (path == null) continue;
-                    BroadcastRigSnapshot(identity.NetId, path, part.rigidbody);
+                    parts.Add(part);
+                    paths.Add(path);
+                    if (parts.Count >= MaximumCompoundBodiesPerSnapshot) break;
                 }
+                if (parts.Count > 0) BroadcastRigSnapshot(identity.NetId, paths, parts);
             }
         }
 
@@ -2062,12 +2133,20 @@ namespace PPGTogether.BepInEx
             Broadcast(WireMessage.Snapshot, WireChannel.Snapshot, writer.ToArray(), false);
         }
 
-        private void BroadcastRigSnapshot(ulong netId, string path, Rigidbody2D body)
+        private void BroadcastRigSnapshot(ulong netId, List<string> paths, List<PhysicalBehaviour> parts)
         {
-            if (body == null || path == null) return;
-            Writer writer = new Writer(72);
-            writer.ULong(netId); writer.String(path); writer.Float(body.position.x); writer.Float(body.position.y); writer.Float(body.rotation);
-            writer.Float(body.velocity.x); writer.Float(body.velocity.y); writer.Float(body.angularVelocity); writer.Bool(body.simulated); writer.Bool(!body.IsAwake());
+            if (paths == null || parts == null || paths.Count == 0 || paths.Count != parts.Count || paths.Count > MaximumCompoundBodiesPerSnapshot) return;
+            Writer writer = new Writer(32 + paths.Count * 48);
+            writer.ULong(netId);
+            writer.Byte((byte)paths.Count);
+            for (int i = 0; i < paths.Count; i++)
+            {
+                PhysicalBehaviour part = parts[i];
+                if (part == null || part.rigidbody == null) return;
+                Rigidbody2D body = part.rigidbody;
+                writer.String(paths[i]); writer.Float(body.position.x); writer.Float(body.position.y); writer.Float(body.rotation);
+                writer.Float(body.velocity.x); writer.Float(body.velocity.y); writer.Float(body.angularVelocity); writer.Bool(body.simulated); writer.Bool(!body.IsAwake());
+            }
             Broadcast(WireMessage.RigSnapshot, WireChannel.Snapshot, writer.ToArray(), false);
         }
 
@@ -2075,6 +2154,9 @@ namespace PPGTogether.BepInEx
         {
             Reader reader = new Reader(envelope.Payload); ulong id; float x; float y; float rotation; float vx; float vy; float angular; bool simulated; bool sleeping;
             if (!reader.ULong(out id) || !reader.Float(out x) || !reader.Float(out y) || !reader.Float(out rotation) || !reader.Float(out vx) || !reader.Float(out vy) || !reader.Float(out angular) || !reader.Bool(out simulated) || !reader.Bool(out sleeping) || reader.Remaining != 0) return;
+            uint previousTick;
+            if (clientRootSnapshotTicks.TryGetValue(id, out previousTick) && !CursorSequence.IsNewer(envelope.Tick, previousTick)) return;
+            clientRootSnapshotTicks[id] = envelope.Tick;
             PPGTogetherIdentity identity; if (!registry.TryGet(id, out identity)) return;
             PhysicalBehaviour physical = identity.GetComponent<PhysicalBehaviour>(); if (physical == null || physical.rigidbody == null) return;
             ApplyRigidbodySnapshot(physical.rigidbody, x, y, rotation, vx, vy, angular, simulated, sleeping);
@@ -2082,24 +2164,46 @@ namespace PPGTogether.BepInEx
 
         private void HandleRigSnapshot(Envelope envelope)
         {
-            Reader reader = new Reader(envelope.Payload); ulong id; string path; float x; float y; float rotation; float vx; float vy; float angular; bool simulated; bool sleeping;
-            if (!reader.ULong(out id) || !reader.String(out path) || !reader.Float(out x) || !reader.Float(out y) || !reader.Float(out rotation) || !reader.Float(out vx) || !reader.Float(out vy) || !reader.Float(out angular) || !reader.Bool(out simulated) || !reader.Bool(out sleeping) || reader.Remaining != 0) return;
+            Reader reader = new Reader(envelope.Payload); ulong id; byte count;
+            if (!reader.ULong(out id) || !reader.Byte(out count) || count == 0 || count > MaximumCompoundBodiesPerSnapshot) return;
+            RigSnapshotState[] states = new RigSnapshotState[count];
+            for (int i = 0; i < count; i++)
+            {
+                RigSnapshotState state = new RigSnapshotState();
+                if (!reader.String(out state.Path) || !reader.Float(out state.X) || !reader.Float(out state.Y) || !reader.Float(out state.Rotation) || !reader.Float(out state.VelocityX) || !reader.Float(out state.VelocityY) || !reader.Float(out state.AngularVelocity) || !reader.Bool(out state.Simulated) || !reader.Bool(out state.Sleeping)) return;
+                states[i] = state;
+            }
+            if (reader.Remaining != 0) return;
+            uint previousTick;
+            if (clientRigSnapshotTicks.TryGetValue(id, out previousTick) && !CursorSequence.IsNewer(envelope.Tick, previousTick)) return;
+            clientRigSnapshotTicks[id] = envelope.Tick;
             PPGTogetherIdentity identity;
             if (!registry.TryGet(id, out identity) || identity == null) return;
-            Transform target = FindTransformByIndexPath(identity.transform, path);
-            if (target == null) return;
-            PhysicalBehaviour physical = target.GetComponent<PhysicalBehaviour>();
-            if (physical == null || physical.rigidbody == null) return;
-            ApplyRigidbodySnapshot(physical.rigidbody, x, y, rotation, vx, vy, angular, simulated, sleeping);
+            for (int i = 0; i < states.Length; i++)
+            {
+                RigSnapshotState state = states[i];
+                Transform target = FindTransformByIndexPath(identity.transform, state.Path);
+                if (target == null) continue;
+                PhysicalBehaviour physical = target.GetComponent<PhysicalBehaviour>();
+                if (physical == null || physical.rigidbody == null) continue;
+                ApplyRigidbodySnapshot(physical.rigidbody, state.X, state.Y, state.Rotation, state.VelocityX, state.VelocityY, state.AngularVelocity, state.Simulated, state.Sleeping);
+            }
         }
 
         private static void ApplyRigidbodySnapshot(Rigidbody2D body, float x, float y, float rotation, float vx, float vy, float angular, bool simulated, bool sleeping)
         {
             if (body == null) return;
-            Vector2 target = new Vector2(x, y);
-            if (Vector2.Distance(body.position, target) > 2f) body.position = target;
-            else body.velocity = Vector2.Lerp(body.velocity, new Vector2(vx, vy), 0.35f);
-            body.rotation = Mathf.LerpAngle(body.rotation, rotation, 0.4f); body.angularVelocity = Mathf.Lerp(body.angularVelocity, angular, 0.35f); body.simulated = simulated;
+            // A replica is visual state owned by the host. It must not run a
+            // second local ragdoll simulation between soft velocity hints;
+            // applying exact poses keeps both screens in the same world.
+            body.bodyType = RigidbodyType2D.Kinematic;
+            body.position = new Vector2(x, y);
+            body.rotation = rotation;
+            // Velocity is informative on the wire, but a kinematic replica must
+            // not drift between two exact host poses under local simulation.
+            body.velocity = Vector2.zero;
+            body.angularVelocity = 0f;
+            body.simulated = simulated;
             if (sleeping) body.Sleep(); else body.WakeUp();
         }
 
@@ -2304,16 +2408,25 @@ namespace PPGTogether.BepInEx
 
         private GameObject SpawnAsset(SpawnableAsset asset, Vector2 position, float rotation, bool flipped)
         {
-            if (asset == null || asset.Prefab == null) return null;
+            // On the current PPG build PerformInstantiation uses
+            // CatalogBehaviour.SelectedItem.Prefab in its normal branch, not
+            // the Prefab on the asset parameter. A guest request for Android
+            // would therefore instantiate whichever item the host had last
+            // selected (and vice versa on the guest). Scope the selected item
+            // to this synchronous vanilla flow and restore it immediately.
+            if (asset == null) return null;
             CatalogBehaviour catalog = CatalogBehaviour.Main;
             if (catalog != null)
             {
+                SpawnableAsset previous = catalog.SelectedItem;
                 bool requestedFlip = flipped;
-                GameObject created = catalog.PerformInstantiation(asset, position, ref requestedFlip, rotation);
-                if (created != null)
+                try
                 {
+                    catalog.SelectedItem = asset;
+                    GameObject created = catalog.PerformInstantiation(asset, position, ref requestedFlip, rotation);
+                    if (created == null) return null;
                     CatalogBehaviour.PerformBeforeSpawn(asset, created);
-                    if (flipped)
+                    if (requestedFlip)
                     {
                         Vector3 scale = created.transform.localScale;
                         scale.x *= -1f;
@@ -2322,7 +2435,14 @@ namespace PPGTogether.BepInEx
                     CatalogBehaviour.PerformAfterSpawn(asset, created);
                     return created;
                 }
+                catch (Exception exception)
+                {
+                    Logger.LogWarning("[Connect][Spawn] Vanilla instantiation failed for " + SafeName(asset.NameToOrderBy) + ": " + exception.GetType().Name + ".");
+                    return null;
+                }
+                finally { catalog.SelectedItem = previous; }
             }
+            if (asset.Prefab == null) return null;
             GameObject fallback = Instantiate(asset.Prefab);
             fallback.transform.position = position;
             fallback.transform.rotation = Quaternion.Euler(0f, 0f, rotation);
@@ -2337,6 +2457,10 @@ namespace PPGTogether.BepInEx
 
         internal void RequestCatalogSpawn(SpawnableAsset asset, bool flipped)
         {
+            // The click which places an item in the Tab catalog is not a grab
+            // attempt. Suppress the matching mouse-down until release so it
+            // cannot generate a bogus GrabBegin before the host creates it.
+            suppressClientGrabUntilMouseUp = true;
             string key = ResolveNetworkSpawnKey(asset);
             if (string.IsNullOrEmpty(key)) { Logger.LogWarning("[Connect][Spawn] Tab catalog interception had no portable SpawnableAsset key. The local asset key was " + SafeName(asset == null ? string.Empty : asset.NameToOrderBy) + "."); SetStatus("The selected catalog item is unavailable on this game build."); return; }
             if (!CanClientSendWorldRequest()) { Logger.LogWarning("[Connect][Spawn] Tab spawn for " + SafeName(key) + " was intercepted, but the guest relay session is not ready. session=" + sessionActive + ", peer=" + clientPeerId + ", connected=" + (transport != null && transport.Connected) + "."); SetStatus("Waiting for the Steam Relay handshake before catalog spawn."); return; }
@@ -2695,11 +2819,11 @@ namespace PPGTogether.BepInEx
         private void Cleanup(bool leaveSteamLobby)
         {
             RestoreHostPhysicsSettings();
-            sessionActive = false; clientPeerId = 0; clientGrabId = 0; clientGrabToken = 0; hostGrabId = 0; hostGrabToken = 0;
+            sessionActive = false; clientPeerId = 0; clientGrabId = 0; clientGrabToken = 0; hostGrabId = 0; hostGrabToken = 0; suppressClientGrabUntilMouseUp = false;
             hostStartAwaitingMap = false; clientSessionStartReceived = false; clientMapLoadPending = false; clientMapLoadIssued = false; clientMapInstanceLoaded = false; clientMapSceneTransitionPending = false; clientConnectSceneSwitchCall = false;
             clientMapLoadDeadline = 0f; clientMapReadyAt = 0f; nextClientMapProbeAt = 0f; nextClientMapLoadAttemptAt = 0f; clientRequestedMapIdentity = string.Empty; clientRequestedSceneName = string.Empty; activeMapIdentity = string.Empty;
             botsEnabled = false; botSpawnCount = 0; ReleaseBots(); bots.Clear(); botSpawnedItems.Clear(); botWorld.Clear(); botCatalog.Clear();
-            grabs.Clear(); continuousActivations.Clear(); clientHeldActivationRoots.Clear(); hostCatalogSpawnKeys.Clear(); registry.Clear(); peers.Clear(); cursors.Clear(); avatars.Clear(); guestSpawnWindows.Clear(); guestInteractionWindows.Clear(); remoteHostSettings = new HostSettingsView();
+            grabs.Clear(); continuousActivations.Clear(); clientHeldActivationRoots.Clear(); clientRootSnapshotTicks.Clear(); clientRigSnapshotTicks.Clear(); hostCatalogSpawnKeys.Clear(); registry.Clear(); peers.Clear(); cursors.Clear(); avatars.Clear(); guestSpawnWindows.Clear(); guestInteractionWindows.Clear(); remoteHostSettings = new HostSettingsView();
             if (transport != null) transport.Close();
             if (leaveSteamLobby && lobby.HasValue) lobby.Value.Leave();
             lobby = null; nonce = 0;
@@ -2718,7 +2842,7 @@ namespace PPGTogether.BepInEx
             Lobby value = lobby.Value;
             value.SetData("ppgt_protocol", Wire.ProtocolVersion.ToString());
             value.SetData("ppgt_mod_version", PluginVersion);
-            value.SetData("ppgt_game_version", ExpectedGameVersion);
+            value.SetData("ppgt_game_version", LocalGameVersion);
             value.SetData("ppgt_host_steam_id", ((ulong)SteamClient.SteamId).ToString());
             value.SetData("ppgt_session_nonce", nonce.ToString());
             value.SetData("ppgt_state", "lobby");
@@ -2969,7 +3093,7 @@ namespace PPGTogether.BepInEx
             GUI.Label(new Rect(panel.x + panel.width - 196f, panel.y + 23f, 94f, 17f), Truncate(user, 13), ui.ButtonSmall);
             if (DrawButton("settings", new Rect(panel.x + panel.width - 91f, panel.y + 19f, 47f, 20f), menuSettingsVisible ? "BACK" : "SET", new Color(0.13f, 0.31f, 0.36f, 1f), new Color(0.21f, 0.59f, 0.62f, 1f), ui.ButtonSmall)) menuSettingsVisible = !menuSettingsVisible;
             if (DrawIconButton("close-top", new Rect(panel.x + panel.width - 38f, panel.y + 19f, 20f, 20f), "×", new Color(0.18f, 0.27f, 0.31f, 1f))) menuVisible = false;
-            GUI.Label(new Rect(panel.x + panel.width - 202f, panel.y + 53f, 184f, 15f), "v" + PluginVersion + "  ·  GAME " + ExpectedGameVersion, ui.Small);
+            GUI.Label(new Rect(panel.x + panel.width - 202f, panel.y + 53f, 184f, 15f), "v" + PluginVersion + "  ·  GAME " + LocalGameVersion, ui.Small);
         }
 
         private void DrawSettings(Rect panel, ref float y)
@@ -3373,6 +3497,14 @@ namespace PPGTogether.BepInEx
         // into an unsynchronised local item.
         internal bool ShouldRouteVanillaCatalogSpawn { get { return !IsHost && sessionActive && lobby.HasValue; } }
         private bool IsHost { get { return lobby.HasValue && SteamReady() && lobby.Value.Owner.Id == SteamClient.SteamId && transport != null && transport.Hosting; } }
+        private static string LocalGameVersion
+        {
+            get
+            {
+                string version = Application.version;
+                return string.IsNullOrEmpty(version) ? ExpectedGameVersion : version.Trim();
+            }
+        }
 
         private ushort GetPeerId(ulong steamId)
         {
@@ -3460,8 +3592,20 @@ namespace PPGTogether.BepInEx
         private static GUIStyle HeaderStyle() { GUIStyle style = new GUIStyle(GUI.skin.label); style.fontSize = 20; style.fontStyle = FontStyle.Bold; style.normal.textColor = new UColor(0.3f, 0.9f, 1f); return style; }
         private static GUIStyle WrapStyle() { GUIStyle style = new GUIStyle(GUI.skin.label); style.wordWrap = true; return style; }
 
-        private sealed class Peer { internal ulong SteamId; internal ushort PeerId; internal Connection Connection; internal string Name; internal PeerMapStatus MapStatus; internal string MapIdentity; }
+        private sealed class Peer { internal ulong SteamId; internal ushort PeerId; internal Connection Connection; internal string Name; internal PeerMapStatus MapStatus; internal string MapIdentity; internal int BaselineCursor; internal int BaselineCyclesRemaining; internal float NextBaselineAt; }
         private struct SpawnRateWindow { internal float StartTime; internal int Count; }
+        private struct RigSnapshotState
+        {
+            internal string Path;
+            internal float X;
+            internal float Y;
+            internal float Rotation;
+            internal float VelocityX;
+            internal float VelocityY;
+            internal float AngularVelocity;
+            internal bool Simulated;
+            internal bool Sleeping;
+        }
         private struct HostSettingsView
         {
             internal bool Received;

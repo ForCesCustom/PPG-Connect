@@ -16,11 +16,16 @@ namespace PPGTogether.BepInEx
     internal sealed class SteamRelayTransport
     {
         private readonly PPGTogetherPlugin plugin;
-        private readonly Queue<ReceivedPacket> received = new Queue<ReceivedPacket>();
+        // A reliable Spawn/control packet must never sit behind a flood of
+        // disposable physics/cursor snapshots. Keep the two classes separate
+        // and always drain world/control work first.
+        private readonly Queue<ReceivedPacket> reliableReceived = new Queue<ReceivedPacket>();
+        private readonly Queue<ReceivedPacket> transientReceived = new Queue<ReceivedPacket>();
         private readonly object queueLock = new object();
         private HostSocket socket;
         private ClientConnection client;
         private bool hosting;
+        private int droppedTransientPackets;
 
         internal bool Hosting { get { return hosting; } }
         internal bool Connected { get { return client != null && client.Connection.Id != 0 && client.Connected; } }
@@ -51,22 +56,27 @@ namespace PPGTogether.BepInEx
         internal void Pump()
         {
             if (socket != null)
-                socket.Receive(64, false);
+                socket.Receive(128, false);
             if (client != null)
-                client.Receive(64, false);
+                client.Receive(128, false);
         }
 
         internal bool TryDequeue(out ReceivedPacket packet)
         {
             lock (queueLock)
             {
-                if (received.Count == 0)
+                if (reliableReceived.Count > 0)
                 {
-                    packet = new ReceivedPacket();
-                    return false;
+                    packet = reliableReceived.Dequeue();
+                    return true;
                 }
-                packet = received.Dequeue();
-                return true;
+                if (transientReceived.Count > 0)
+                {
+                    packet = transientReceived.Dequeue();
+                    return true;
+                }
+                packet = new ReceivedPacket();
+                return false;
             }
         }
 
@@ -92,17 +102,23 @@ namespace PPGTogether.BepInEx
         {
             if (client != null)
             {
-                client.Close(false, 0, "Connect session closed");
+                try { client.Close(false, 0, "Connect session closed"); }
+                catch (Exception exception) { plugin.LogTransport("Relay client close skipped: " + exception.GetType().Name + "."); }
                 client = null;
             }
             if (socket != null)
             {
-                socket.Close();
+                try { socket.Close(); }
+                catch (Exception exception) { plugin.LogTransport("Relay host close skipped: " + exception.GetType().Name + "."); }
                 socket = null;
             }
             hosting = false;
             lock (queueLock)
-                received.Clear();
+            {
+                reliableReceived.Clear();
+                transientReceived.Clear();
+                droppedTransientPackets = 0;
+            }
         }
 
         internal void OnIncomingConnection(Connection connection, ConnectionInfo info)
@@ -124,13 +140,39 @@ namespace PPGTogether.BepInEx
                 return;
             byte[] copy = new byte[size];
             Marshal.Copy(data, copy, 0, size);
+            ReceivedPacket packet = new ReceivedPacket { Connection = connection, SteamId = (ulong)steamId, Data = copy };
+            bool transient = IsTransientPacket(copy);
             lock (queueLock)
             {
-                if (received.Count < 256)
-                    received.Enqueue(new ReceivedPacket { Connection = connection, SteamId = (ulong)steamId, Data = copy });
-                else
-                    plugin.LogTransport("Dropped relay packet because the incoming queue is full.");
+                if (transient)
+                {
+                    // Snapshot/cursor packets have a newer replacement within
+                    // milliseconds. Dropping an old one is correct; dropping
+                    // a reliable Spawn is not.
+                    if (transientReceived.Count < 192)
+                    {
+                        transientReceived.Enqueue(packet);
+                        return;
+                    }
+                    droppedTransientPackets++;
+                    if (droppedTransientPackets == 1 || droppedTransientPackets % 256 == 0)
+                        plugin.LogTransport("Coalesced " + droppedTransientPackets + " transient relay packet(s) to protect reliable world messages.");
+                    return;
+                }
+                if (reliableReceived.Count < 512)
+                {
+                    reliableReceived.Enqueue(packet);
+                    return;
+                }
+                plugin.LogTransport("Dropped a reliable relay packet because its protected queue is full.");
             }
+        }
+
+        private static bool IsTransientPacket(byte[] data)
+        {
+            if (data == null || data.Length < Wire.HeaderSize) return false;
+            WireMessage type = (WireMessage)data[6];
+            return type == WireMessage.Cursor || type == WireMessage.Snapshot || type == WireMessage.RigSnapshot || type == WireMessage.GrabUpdate;
         }
 
         private sealed class HostSocket : SocketManager

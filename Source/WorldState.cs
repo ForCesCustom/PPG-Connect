@@ -98,7 +98,9 @@ namespace PPGTogether.BepInEx
         {
             byId.Clear();
             byObject.Clear();
-            nextId = 1;
+            // IDs must remain unique for the lifetime of this relay session.
+            // A late unreliable pose from the previous map must never target a
+            // freshly-spawned object that happened to reuse its old ID.
         }
     }
 
@@ -132,12 +134,51 @@ namespace PPGTogether.BepInEx
             Collider2D collider = Physics2D.OverlapPoint(point);
             if (collider == null) { denial = "No object under cursor"; return false; }
             PhysicalBehaviour physical = collider.GetComponentInParent<PhysicalBehaviour>();
-            if (physical == null || physical.rigidbody == null || !physical.Selectable) { denial = "Object cannot be grabbed"; return false; }
+            if (physical == null) { denial = "Object cannot be grabbed"; return false; }
             // People and some compound vanilla items put their colliders and
             // Rigidbody2D instances on child objects. The network identity is
             // deliberately attached to the spawned root, so a child limb must
             // resolve its parent identity before it can receive a grab lease.
             PPGTogetherIdentity identity = physical.GetComponentInParent<PPGTogetherIdentity>();
+            return TryBeginPhysical(peerId, identity, physical, point, tick, out grab, out denial);
+        }
+
+        // Guests name the registered root they are pointing at. The host still
+        // validates the local child collider, but no longer searches its whole
+        // world for an unrelated object at that coordinate.
+        internal bool TryBegin(ushort peerId, ulong netId, Vector2 point, uint tick, out ActiveGrab grab, out string denial)
+        {
+            grab = null;
+            denial = string.Empty;
+            if (!Finite(point)) { denial = "Invalid cursor coordinates"; return false; }
+            PPGTogetherIdentity identity;
+            if (netId == 0 || !registry.TryGet(netId, out identity) || identity == null)
+            {
+                denial = "Object no longer exists in the host world";
+                return false;
+            }
+            PhysicalBehaviour[] candidates = identity.GetComponentsInChildren<PhysicalBehaviour>(true);
+            for (int i = 0; i < candidates.Length; i++)
+            {
+                PhysicalBehaviour physical = candidates[i];
+                if (physical == null || physical.rigidbody == null || !physical.Selectable) continue;
+                Collider2D[] colliders = physical.GetComponentsInChildren<Collider2D>(true);
+                for (int j = 0; j < colliders.Length; j++)
+                {
+                    Collider2D collider = colliders[j];
+                    if (collider != null && collider.enabled && collider.GetComponentInParent<PhysicalBehaviour>() == physical && collider.OverlapPoint(point))
+                        return TryBeginPhysical(peerId, identity, physical, point, tick, out grab, out denial);
+                }
+            }
+            denial = "Requested object is not under the host cursor";
+            return false;
+        }
+
+        private bool TryBeginPhysical(ushort peerId, PPGTogetherIdentity identity, PhysicalBehaviour physical, Vector2 point, uint tick, out ActiveGrab grab, out string denial)
+        {
+            grab = null;
+            denial = string.Empty;
+            if (physical == null || physical.rigidbody == null || !physical.Selectable) { denial = "Object cannot be grabbed"; return false; }
             PPGTogetherIdentity registered;
             if (identity == null || identity.NetId == 0 || !registry.TryGet(identity.NetId, out registered) || registered != identity)
             {

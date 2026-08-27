@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.1.44 — Authoritative world convergence
+
+- Fixed the underlying People Playground catalog mismatch: its normal
+  `PerformInstantiation` branch reads `CatalogBehaviour.SelectedItem`, not the
+  supplied `SpawnableAsset`. Connect now scopes that selected asset while it
+  creates a replicated item and restores the player's local selection after.
+  A Human selected on one PC can no longer turn another player's requested
+  Android or vanilla object into a Human on either peer.
+- Replaced one relay packet per compound Rigidbody2D limb with a bounded batch
+  per spawned root. Transport queues now prioritize reliable world/control
+  messages and coalesce disposable cursor/pose traffic, so Spawn is protected
+  during ragdoll-heavy scenes.
+- Guest replicas now apply exact host poses instead of running a second local
+  ragdoll simulation between snapshots. Out-of-order pose packets are ignored.
+- Added two bounded post-`PLAYING` reconciliation passes, retained world IDs
+  across map clears, and made a guest grab name the registered root it intends
+  to grab. The Tab placement click is suppressed from starting a premature grab.
+- Handshake, lobby metadata and panel now report the actual local game version;
+  the release target is People Playground 1.27.17 / Steam build 24793773.
+- Bumped wire protocol to v7. Every player must install v0.1.44.
+
 ## 0.1.43 — Authoritative spawn keys and compound grabs
 
 - Fixed the host-side reply for a guest Tab spawn. The relay now preserves the

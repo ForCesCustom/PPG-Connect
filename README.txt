@@ -1,4 +1,4 @@
-Connect — BepInEx edition v0.1.43
+Connect — BepInEx edition v0.1.44
 ===============================
 
 Connect adds a host-authoritative Steam Relay session to People Playground.
@@ -8,7 +8,7 @@ Connect release ZIP, which already includes BepInEx 5 x64 and Connect.BepInEx.dl
 Confirmed local target
 ----------------------
 
-- People Playground 1.27.16 (Steam build 24782494)
+- People Playground 1.27.17 (Steam build 24793773)
 - Unity 2020.3.1f1 Mono x64
 - Facepunch.Steamworks.Win64 supplied by the game
 - BepInEx 5.4.23.5 Unity.Mono-win-x64
@@ -18,8 +18,8 @@ Installation
 
 1. Fully close People Playground.
 2. Download the complete package from
-   `https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.43.zip`.
-   Extract the entire **Connect-v0.1.43.zip** directly into the folder that
+   `https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.44.zip`.
+   Extract the entire **Connect-v0.1.44.zip** directly into the folder that
    contains `People Playground.exe`, and allow Windows to merge the supplied
    `BepInEx` folder. The release already contains BepInEx 5 Unity.Mono-win-x64,
    `winhttp.dll`, `doorstop_config.ini`, the Connect DLL and its icon.

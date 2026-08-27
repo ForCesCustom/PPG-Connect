@@ -42,9 +42,10 @@ namespace PPGTogether.BepInEx
         // It is informational only: the host still owns the map directive and
         // never accepts a map identity or scene name from this message.
         ClientMapStatus = 23,
-        // Unreliable host-to-client pose for a Rigidbody2D nested inside a
-        // registered spawnable (for example a ragdoll limb). The target is a
-        // bounded child-index path below the authoritative spawn root.
+        // Unreliable host-to-client batch of poses for Rigidbody2D instances
+        // nested inside one registered spawnable (for example ragdoll limbs).
+        // A single bounded packet per root prevents limb traffic from starving
+        // reliable Spawn and Despawn messages.
         RigSnapshot = 24
     }
 
@@ -59,7 +60,7 @@ namespace PPGTogether.BepInEx
     internal static class Wire
     {
         internal const uint Magic = 0x54475050;
-        internal const ushort ProtocolVersion = 6;
+        internal const ushort ProtocolVersion = 7;
         internal const int HeaderSize = 30;
         internal const int MaxPacketBytes = 49152;
         internal const int MaxStringBytes = 256;

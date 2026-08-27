@@ -2,8 +2,8 @@
 
 ## Target installation
 
-- Game: `C:\Program Files (x86)\Steam\steamapps\common\People Playground`
-- Version: `1.27.16`; Steam build ID `24782494`
+- Game: `D:\SteamLibrary\steamapps\common\People Playground`
+- Version: `1.27.17`; Steam build ID `24793773`
 - Unity: `2020.3.1f1` Mono x64
 - Managed Steam wrapper: `People Playground_Data\Managed\Facepunch.Steamworks.Win64.dll`
 - Steamworks.NET was not selected or bundled.

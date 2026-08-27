@@ -53,17 +53,36 @@ namespace PPGTogether.BepInEx
             string mapIdentity;
             if (!mapStatusReader.Byte(out mapStatus) || !mapStatusReader.String(out mapIdentity) || mapStatusReader.Remaining != 0 || mapStatus != 3 || mapIdentity != "substructure") return 14;
 
-            Writer rigWriter = new Writer(64);
+            Writer rigWriter = new Writer(96);
             rigWriter.ULong(77UL);
+            rigWriter.Byte(2);
             rigWriter.String("0/2/1");
             rigWriter.Float(2.5f);
+            rigWriter.Float(-3.5f);
+            rigWriter.Float(90f);
+            rigWriter.Float(4f);
+            rigWriter.Float(-5f);
+            rigWriter.Float(6f);
+            rigWriter.Bool(true);
+            rigWriter.Bool(false);
+            rigWriter.String("1/0");
+            rigWriter.Float(8f);
+            rigWriter.Float(9f);
+            rigWriter.Float(10f);
+            rigWriter.Float(11f);
+            rigWriter.Float(12f);
+            rigWriter.Float(13f);
+            rigWriter.Bool(false);
+            rigWriter.Bool(true);
             byte[] rigPacket = Wire.Pack(WireMessage.RigSnapshot, WireChannel.Snapshot, 27UL, 0, 12, 14, rigWriter.ToArray());
             if (!Wire.TryUnpack(rigPacket, out envelope) || envelope.Type != WireMessage.RigSnapshot || envelope.Channel != WireChannel.Snapshot) return 15;
             Reader rigReader = new Reader(envelope.Payload);
             ulong rigId;
+            byte rigCount;
             string rigPath;
-            float rigX;
-            if (!rigReader.ULong(out rigId) || !rigReader.String(out rigPath) || !rigReader.Float(out rigX) || rigReader.Remaining != 0 || rigId != 77UL || rigPath != "0/2/1" || rigX != 2.5f) return 16;
+            float rigX; float rigY; float rigRotation; float rigVx; float rigVy; float rigAngular; bool rigSimulated; bool rigSleeping;
+            if (!rigReader.ULong(out rigId) || !rigReader.Byte(out rigCount) || !rigReader.String(out rigPath) || !rigReader.Float(out rigX) || !rigReader.Float(out rigY) || !rigReader.Float(out rigRotation) || !rigReader.Float(out rigVx) || !rigReader.Float(out rigVy) || !rigReader.Float(out rigAngular) || !rigReader.Bool(out rigSimulated) || !rigReader.Bool(out rigSleeping) || rigId != 77UL || rigCount != 2 || rigPath != "0/2/1" || rigX != 2.5f || rigY != -3.5f || rigRotation != 90f || rigVx != 4f || rigVy != -5f || rigAngular != 6f || !rigSimulated || rigSleeping) return 16;
+            if (!rigReader.String(out rigPath) || !rigReader.Float(out rigX) || !rigReader.Float(out rigY) || !rigReader.Float(out rigRotation) || !rigReader.Float(out rigVx) || !rigReader.Float(out rigVy) || !rigReader.Float(out rigAngular) || !rigReader.Bool(out rigSimulated) || !rigReader.Bool(out rigSleeping) || rigReader.Remaining != 0 || rigPath != "1/0" || rigX != 8f || rigY != 9f || rigRotation != 10f || rigVx != 11f || rigVy != 12f || rigAngular != 13f || rigSimulated || !rigSleeping) return 16;
 
             Random random = new Random(1729);
             for (int i = 0; i < 10000; i++)
