@@ -1,10 +1,10 @@
-# Patches — Connect BepInEx edition v0.1.39
+# Patches — Connect BepInEx edition v0.1.45
 
 ## ClientWorldInputPatch
 
 - Target type: `ToolControllerBehaviour`
 - Target method: `HandleTools`
-- Game tested: People Playground `1.27.16`, Unity `2020.3.1f1`
+- Game tested: People Playground `1.27.17`, Unity `2020.3.1f1`
 - Patch type: Harmony prefix
 - Reason: a connected non-host must not simultaneously apply vanilla local world
   interactions while it sends host-authoritative multiplayer drag requests.
@@ -26,7 +26,7 @@ security, the game loader, OS mouse input, or anti-cheat/security components.
 
 - Target type: `CatalogBehaviour`
 - Target method: `Spawn(SpawnableAsset, bool)`
-- Game tested: People Playground `1.27.16`, Unity `2020.3.1f1`
+- Game tested: People Playground `1.27.17`, Unity `2020.3.1f1`
 - Patch type: Harmony prefix
 - Reason: preserve every player's own normal Tab catalog while preventing a
   connected client from creating an unauthoritative local object.
@@ -43,7 +43,7 @@ security, the game loader, OS mouse input, or anti-cheat/security components.
 
 - Target type: `ToolControllerBehaviour`
 - Target method: `HandleContextMenu`
-- Game tested: People Playground `1.27.16`, Unity `2020.3.1f1`
+- Game tested: People Playground `1.27.17`, Unity `2020.3.1f1`
 - Patch type: Harmony prefix
 - Reason: after the broad tool handler is gated for a client, right-click still
   needs a local selection for the normal context menu.
@@ -57,7 +57,7 @@ security, the game loader, OS mouse input, or anti-cheat/security components.
 
 - Target type: `ContextMenuBehaviour`
 - Target methods: `ActivateAction` and `DeleteAction`
-- Game tested: People Playground `1.27.16`, Unity `2020.3.1f1`
+- Game tested: People Playground `1.27.17`, Unity `2020.3.1f1`
 - Patch type: Harmony prefixes
 - Reason: route the two bounded vanilla actions through the host rather than
   mutating a non-host client's local simulation.
@@ -73,7 +73,7 @@ security, the game loader, OS mouse input, or anti-cheat/security components.
 
 - Target type: `ToolControllerBehaviour`
 - Target method: `HandleIndirectInteraction`
-- Game tested: People Playground `1.27.16`, Unity `2020.3.1f1`
+- Game tested: People Playground `1.27.17`, Unity `2020.3.1f1`
 - Patch type: Harmony prefix
 - Reason: route the standard direct `Use` binding through the host.
 - Behaviour: only during a live non-host session, consumes the direct-use input
@@ -86,7 +86,7 @@ security, the game loader, OS mouse input, or anti-cheat/security components.
 
 - Target type: `MapLoaderBehaviour`
 - Target method: `Load`
-- Game tested: People Playground `1.27.16`, Unity `2020.3.1f1`
+- Game tested: People Playground `1.27.17`, Unity `2020.3.1f1`
 - Patch type: Harmony postfix
 - Reason: observe the game's own completed map-load path, so a Connect host can
   relay the selected installed map identity and guests can follow it through
@@ -101,7 +101,7 @@ security, the game loader, OS mouse input, or anti-cheat/security components.
 ## ConnectClientMapViewPatch / ConnectClientSceneSwitchPatch
 
 - Target types: `MapViewBehaviour.Select` and `SceneSwitchBehaviour.Switch`
-- Game tested: People Playground `1.27.16`, Unity `2020.3.1f1`
+- Game tested: People Playground `1.27.17`, Unity `2020.3.1f1`
 - Patch type: Harmony prefixes
 - Reason: the base-game map tile and Enter button can otherwise move a guest
   into a different local sandbox scene. The host must remain the only map
@@ -113,3 +113,24 @@ security, the game loader, OS mouse input, or anti-cheat/security components.
 - Signature/version guard: exact public method names. If either target changes,
   that one guard is not applied; Connect logs the patch failure rather than
   using a broad input or scene patch.
+
+## ClientUnsupportedContextActionPatch / ClientClear*Patch
+
+- Target types: `ContextMenuBehaviour`, `ClearButtonBehaviour`,
+  `ClearLivingBehaviour`, `ClearDebrisBehaviour`
+- Target methods: every zero-argument `ContextMenuBehaviour` method ending in
+  `Action` except `ActivateAction` / `DeleteAction`; plus `ClearEverything`
+  and each named `Clear` method.
+- Game tested: People Playground `1.27.17`, Unity `2020.3.1f1`
+- Patch type: Harmony prefixes
+- Reason: these native controls mutate only a guest's local scene. Paste may
+  instantiate objects; Clear and the other context actions otherwise create a
+  silent divergent world.
+- Behaviour: while connected as a non-host, Activate/Delete remain routed to
+  host validation while all other detected context actions and the three Clear
+  controls are stopped with a visible status. Host and single-player behaviour
+  remain untouched.
+- Signature/version guard: dynamic context targets are limited to the concrete
+  current `ContextMenuBehaviour` action methods and do not invoke a method name
+  supplied by a peer. If a future game changes these APIs, inspect the startup
+  Harmony log before claiming client-side authority gating.

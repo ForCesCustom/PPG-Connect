@@ -6,9 +6,18 @@ namespace PPGTogether.BepInEx
 {
     internal sealed class PPGTogetherIdentity : MonoBehaviour
     {
+        // Kept as a callback instead of a direct plugin reference so the
+        // protocol/world smoke tests can compile this small model on its own.
+        internal static Action<PPGTogetherIdentity> DestroyedCallback;
         internal ulong NetId;
         internal string SpawnKey;
         internal bool ReplicatedSpawn;
+
+        private void OnDestroy()
+        {
+            Action<PPGTogetherIdentity> callback = DestroyedCallback;
+            if (callback != null) callback(this);
+        }
     }
 
     internal sealed class WorldRegistry
@@ -79,10 +88,24 @@ namespace PPGTogether.BepInEx
         {
             PPGTogetherIdentity identity;
             if (gameObject != null && byObject.TryGetValue(gameObject, out identity))
-            {
-                byObject.Remove(gameObject);
+                Remove(identity);
+        }
+
+        internal void Remove(PPGTogetherIdentity identity)
+        {
+            if (ReferenceEquals(identity, null)) return;
+            PPGTogetherIdentity registered;
+            if (byId.TryGetValue(identity.NetId, out registered) && ReferenceEquals(registered, identity))
                 byId.Remove(identity.NetId);
-            }
+            List<GameObject> remove = null;
+            foreach (KeyValuePair<GameObject, PPGTogetherIdentity> pair in byObject)
+                if (ReferenceEquals(pair.Value, identity))
+                {
+                    if (remove == null) remove = new List<GameObject>();
+                    remove.Add(pair.Key);
+                }
+            if (remove != null)
+                for (int i = 0; i < remove.Count; i++) byObject.Remove(remove[i]);
         }
 
         internal IEnumerable<PPGTogetherIdentity> All()
@@ -117,6 +140,7 @@ namespace PPGTogether.BepInEx
 
     internal sealed class HostGrabController
     {
+        private const float NetworkGrabTolerance = 1.35f;
         private readonly WorldRegistry registry;
         private readonly Dictionary<ulong, ActiveGrab> activeByNetId = new Dictionary<ulong, ActiveGrab>();
         private uint nextToken = 1;
@@ -140,7 +164,7 @@ namespace PPGTogether.BepInEx
             // deliberately attached to the spawned root, so a child limb must
             // resolve its parent identity before it can receive a grab lease.
             PPGTogetherIdentity identity = physical.GetComponentInParent<PPGTogetherIdentity>();
-            return TryBeginPhysical(peerId, identity, physical, point, tick, out grab, out denial);
+            return TryBeginPhysical(peerId, identity, physical, point, point, tick, out grab, out denial);
         }
 
         // Guests name the registered root they are pointing at. The host still
@@ -158,6 +182,9 @@ namespace PPGTogether.BepInEx
                 return false;
             }
             PhysicalBehaviour[] candidates = identity.GetComponentsInChildren<PhysicalBehaviour>(true);
+            PhysicalBehaviour nearest = null;
+            Vector2 nearestAnchor = point;
+            float nearestDistanceSquared = NetworkGrabTolerance * NetworkGrabTolerance;
             for (int i = 0; i < candidates.Length; i++)
             {
                 PhysicalBehaviour physical = candidates[i];
@@ -167,14 +194,25 @@ namespace PPGTogether.BepInEx
                 {
                     Collider2D collider = colliders[j];
                     if (collider != null && collider.enabled && collider.GetComponentInParent<PhysicalBehaviour>() == physical && collider.OverlapPoint(point))
-                        return TryBeginPhysical(peerId, identity, physical, point, tick, out grab, out denial);
+                        return TryBeginPhysical(peerId, identity, physical, point, point, tick, out grab, out denial);
+                    if (collider == null || !collider.enabled || collider.GetComponentInParent<PhysicalBehaviour>() != physical) continue;
+                    Vector2 anchor = collider.ClosestPoint(point);
+                    float distanceSquared = (anchor - point).sqrMagnitude;
+                    if (distanceSquared < nearestDistanceSquared)
+                    {
+                        nearest = physical;
+                        nearestAnchor = anchor;
+                        nearestDistanceSquared = distanceSquared;
+                    }
                 }
             }
+            if (nearest != null)
+                return TryBeginPhysical(peerId, identity, nearest, point, nearestAnchor, tick, out grab, out denial);
             denial = "Requested object is not under the host cursor";
             return false;
         }
 
-        private bool TryBeginPhysical(ushort peerId, PPGTogetherIdentity identity, PhysicalBehaviour physical, Vector2 point, uint tick, out ActiveGrab grab, out string denial)
+        private bool TryBeginPhysical(ushort peerId, PPGTogetherIdentity identity, PhysicalBehaviour physical, Vector2 target, Vector2 anchorPoint, uint tick, out ActiveGrab grab, out string denial)
         {
             grab = null;
             denial = string.Empty;
@@ -197,8 +235,8 @@ namespace PPGTogether.BepInEx
                 PeerId = peerId,
                 Token = nextToken++,
                 Body = physical.rigidbody,
-                LocalPoint = physical.rigidbody.transform.InverseTransformPoint(point),
-                Target = point,
+                LocalPoint = physical.rigidbody.transform.InverseTransformPoint(anchorPoint),
+                Target = target,
                 ExpiresAtTick = tick + 180
             };
             activeByNetId[identity.NetId] = grab;

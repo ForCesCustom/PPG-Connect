@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.Reflection;
 using HarmonyLib;
 
 namespace PPGTogether.BepInEx
@@ -79,6 +82,65 @@ namespace PPGTogether.BepInEx
             plugin.RequestClientContextDelete();
             if (__instance != null) __instance.Hide();
             return false;
+        }
+    }
+
+    // Activate and Delete are explicitly routed to host validation above. The
+    // rest of the native Context menu changes only the local scene (Paste can
+    // even instantiate new GameObjects), so a connected guest must not execute
+    // those actions until matching protocol support exists.
+    [HarmonyPatch]
+    internal static class ClientUnsupportedContextActionPatch
+    {
+        private static IEnumerable<MethodBase> TargetMethods()
+        {
+            MethodInfo[] methods = typeof(ContextMenuBehaviour).GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            for (int i = 0; i < methods.Length; i++)
+            {
+                MethodInfo method = methods[i];
+                if (method == null || method.GetParameters().Length != 0 || !method.Name.EndsWith("Action", StringComparison.Ordinal) ||
+                    method.Name == "ActivateAction" || method.Name == "DeleteAction")
+                    continue;
+                yield return method;
+            }
+        }
+
+        private static bool Prefix(MethodBase __originalMethod)
+        {
+            PPGTogetherPlugin plugin = PPGTogetherPlugin.Instance;
+            if (plugin == null || !plugin.ShouldBlockVanillaWorldInput) return true;
+            plugin.NotifyUnsupportedClientContextAction(__originalMethod == null ? "Context action" : __originalMethod.Name);
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(ClearButtonBehaviour), "ClearEverything")]
+    internal static class ClientClearEverythingPatch
+    {
+        private static bool Prefix()
+        {
+            PPGTogetherPlugin plugin = PPGTogetherPlugin.Instance;
+            return plugin == null || plugin.AllowClientWorldClear();
+        }
+    }
+
+    [HarmonyPatch(typeof(ClearLivingBehaviour), "Clear")]
+    internal static class ClientClearLivingPatch
+    {
+        private static bool Prefix()
+        {
+            PPGTogetherPlugin plugin = PPGTogetherPlugin.Instance;
+            return plugin == null || plugin.AllowClientWorldClear();
+        }
+    }
+
+    [HarmonyPatch(typeof(ClearDebrisBehaviour), "Clear")]
+    internal static class ClientClearDebrisPatch
+    {
+        private static bool Prefix()
+        {
+            PPGTogetherPlugin plugin = PPGTogetherPlugin.Instance;
+            return plugin == null || plugin.AllowClientWorldClear();
         }
     }
 

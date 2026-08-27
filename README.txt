@@ -1,4 +1,4 @@
-Connect — BepInEx edition v0.1.44
+Connect — BepInEx edition v0.1.45
 ===============================
 
 Connect adds a host-authoritative Steam Relay session to People Playground.
@@ -18,8 +18,8 @@ Installation
 
 1. Fully close People Playground.
 2. Download the complete package from
-   `https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.44.zip`.
-   Extract the entire **Connect-v0.1.44.zip** directly into the folder that
+   `https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.45.zip`.
+   Extract the entire **Connect-v0.1.45.zip** directly into the folder that
    contains `People Playground.exe`, and allow Windows to merge the supplied
    `BepInEx` folder. The release already contains BepInEx 5 Unity.Mono-win-x64,
    `winhttp.dll`, `doorstop_config.ini`, the Connect DLL and its icon.
@@ -54,6 +54,17 @@ where that runtime is absent entirely.
 
 The BepInEx plugin has the same runtime health check and maintains the direct
 package URL. Use `FRIEND_INSTALL_GUIDE_RU.txt` for a Russian installation guide.
+
+v0.1.45 audit hardening
+-----------------------
+
+Connected guests cannot run unsynchronised native Context Menu actions or the
+base-game Clear buttons. During a host-led map transition their world input and
+incoming snapshots are gated until their installed map is verified and reports
+`PLAYING`. Destroyed compound roots now produce one Despawn, snapshots are
+round-robin capped at 24 roots per tick, and grab validation allows a bounded
+1.35-unit collider tolerance for normal relay pose delay. Every player must
+use v0.1.45 even though the wire protocol remains v7.
 
 Settings
 --------

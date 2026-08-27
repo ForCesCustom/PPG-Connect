@@ -1,4 +1,4 @@
-# Known limitations — Connect BepInEx edition v0.1.44
+# Known limitations — Connect BepInEx edition v0.1.45
 
 - Every player must extract the same complete Connect ZIP into the game root.
   It already contains BepInEx 5 x64, but Connect remains a non-standard loader
@@ -9,7 +9,9 @@
   v0.1.44 also scopes People Playground's local `SelectedItem` during the
   networked instantiation path, so each peer creates the catalog asset carried
   by the authoritative Spawn rather than its own locally selected Tab item.
-  A real two-account run is still required to confirm representative Tab spawns.
+  v0.1.45 additionally blocks unsupported guest Context Menu and Clear actions,
+  gates input during a host map transition, and bounds snapshot traffic. A real
+  two-account run is still required to confirm representative Tab spawns.
 - Join-in-progress does not reconstruct pre-existing map objects. Start with an
   empty map, create the lobby, press **START & SYNC MAP** and, if needed, choose
   the host map; then use the normal Tab catalog for objects expected to
@@ -31,7 +33,9 @@
   Direct
   vanilla Use (including host-side continuous Use for automatic weapons) plus
   context Activate/Delete are supported only for a registered Connect root;
-  arbitrary context buttons from the game or Workshop are not.
+  arbitrary context buttons from the game or Workshop are not. On a connected
+  guest, unsupported context buttons and Clear Everything/Clear Living/Clear
+  Debris are deliberately blocked rather than executed locally.
 - A remote player can request a configured vanilla spawnable by its stable
   catalog name. There is no mod-set manifest comparison or Workshop download;
   use vanilla content for v0.1.0.

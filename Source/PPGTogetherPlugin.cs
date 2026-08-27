@@ -22,7 +22,7 @@ namespace PPGTogether.BepInEx
         internal const string PluginGuid = "local.ppgtogether.steam";
         // Keep the GUID stable so this is a seamless update for existing users.
         internal const string PluginName = "Connect";
-        internal const string PluginVersion = "0.1.44";
+        internal const string PluginVersion = "0.1.45";
         // Fallback only. The handshake and panel use Application.version so a
         // Steam-updated host cannot silently pretend to be an older build.
         internal const string ExpectedGameVersion = "1.27.17";
@@ -48,6 +48,9 @@ namespace PPGTogether.BepInEx
         // warning and a missing panel icon.
         private const int MaximumConnectIconBytes = 4 * 1024 * 1024;
         private const int MaximumCompoundBodiesPerSnapshot = 48;
+        // At 20 Hz this bounds a 500-object world to 480 root updates per
+        // second instead of attempting 10,000+ relay packets per second.
+        private const int MaximumSnapshotRootsPerTick = 24;
         private const int WorldBaselineChunkSize = 16;
         private const float WorldBaselineIntervalSeconds = 0.45f;
         private const int WorldBaselineCycles = 2;
@@ -125,6 +128,7 @@ namespace PPGTogether.BepInEx
         private Vector2 menuDragOffset;
         private float nextCursorAt;
         private float nextSnapshotAt;
+        private int snapshotRootCursor;
         private float nextGrabAt;
         private float nextClientActivationHeartbeatAt;
         private float clientMapLoadDeadline;
@@ -205,6 +209,7 @@ namespace PPGTogether.BepInEx
         private void Awake()
         {
             Instance = this;
+            PPGTogetherIdentity.DestroyedCallback = OnNetworkIdentityDestroyed;
             EnsureRuntimeMarker();
             menuXSetting = Config.Bind("Interface", "Menu X", 20f, "Saved horizontal position of the Connect panel.");
             menuYSetting = Config.Bind("Interface", "Menu Y", 34f, "Saved vertical position of the Connect panel.");
@@ -229,7 +234,12 @@ namespace PPGTogether.BepInEx
             playerCursorScaleSetting = Config.Bind("Player", "Remote Cursor Scale", 1f, "Local visual scale for remote cursors. Valid range: 0.60 to 1.80.");
             playerCursorSmoothingSetting = Config.Bind("Player", "Remote Cursor Smoothing", 22f, "Local remote cursor smoothing. Valid range: 8 to 48.");
             playerCursorSendRateSetting = Config.Bind("Player", "Cursor Send Rate Hz", 60, "Local cursor update rate. Valid range: 60 to 120 Hz.");
-            supportGithubReleaseUrlSetting = Config.Bind("Support", "GitHub Download URL", ConnectSupportLinks.PublishedReleaseUrl, "Official HTTPS direct download used by the missing-files recovery notice. An empty or invalid saved value falls back to the published Connect package.");
+            supportGithubReleaseUrlSetting = Config.Bind("Support", "GitHub Download URL", ConnectSupportLinks.PublishedReleaseUrl, "Canonical HTTPS direct download used by the missing-files recovery notice. Connect automatically migrates old saved release links to the matching current package.");
+            if (!string.Equals(supportGithubReleaseUrlSetting.Value, ConnectSupportLinks.PublishedReleaseUrl, StringComparison.Ordinal))
+            {
+                supportGithubReleaseUrlSetting.Value = ConnectSupportLinks.PublishedReleaseUrl;
+                Logger.LogInfo("[Connect][Install] Updated the saved recovery link to the matching Connect release.");
+            }
             // Migrate older releases, which deliberately limited cursor
             // traffic to 45 Hz.  Cursor positions are compact unreliable
             // packets, so 60 Hz is still a small bandwidth cost but removes
@@ -309,6 +319,7 @@ namespace PPGTogether.BepInEx
         private void OnDestroy()
         {
             Cleanup(false);
+            PPGTogetherIdentity.DestroyedCallback = null;
             if (ui != null) ui.Dispose();
             if (modIcon != null) Destroy(modIcon);
             if (runtimeMarker != null) Destroy(runtimeMarker);
@@ -374,9 +385,7 @@ namespace PPGTogether.BepInEx
         {
             get
             {
-                string configured = supportGithubReleaseUrlSetting == null ? ConnectSupportLinks.PublishedReleaseUrl : supportGithubReleaseUrlSetting.Value;
-                if (ConnectSupportLinks.IsSafeGitHubUrl(configured)) return configured;
-                return ConnectSupportLinks.IsSafeGitHubUrl(ConnectSupportLinks.PublishedReleaseUrl) ? ConnectSupportLinks.PublishedReleaseUrl : string.Empty;
+                return ConnectSupportLinks.PublishedReleaseUrl;
             }
         }
 
@@ -904,6 +913,15 @@ namespace PPGTogether.BepInEx
             if (sessionActive && string.Equals(activeMapIdentity, identity, StringComparison.Ordinal)) return;
             if (string.Equals(clientRequestedMapIdentity, identity, StringComparison.Ordinal) &&
                 (clientMapLoadPending || clientMapLoadIssued || clientMapInstanceLoaded)) return;
+            // Stop accepting world input and delayed snapshots immediately.
+            // The host will resend the registered baseline only after this map
+            // has a verified local root and reports PLAYING again.
+            if (sessionActive)
+            {
+                EndClientGrab();
+                EndClientActivations();
+                sessionActive = false;
+            }
             clientRequestedMapIdentity = identity;
             ResetNetworkWorldForMapTransition();
             clientMapLoadPending = true;
@@ -1179,6 +1197,7 @@ namespace PPGTogether.BepInEx
             clientGrabToken = 0;
             hostGrabId = 0;
             hostGrabToken = 0;
+            snapshotRootCursor = 0;
             suppressClientGrabUntilMouseUp = false;
             clientRootSnapshotTicks.Clear();
             clientRigSnapshotTicks.Clear();
@@ -2031,8 +2050,10 @@ namespace PPGTogether.BepInEx
             if (!hostGuestsCanGrabSetting.Value) { Logger.LogInfo("[Connect][Grab] Denied " + peer.Name + ": host disabled guest grabs."); SendGrabDenied(packet.Connection, "Guests cannot grab objects in this session."); return; }
             Reader reader = new Reader(envelope.Payload); ulong id; float x; float y;
             if (!reader.ULong(out id) || !reader.Float(out x) || !reader.Float(out y) || reader.Remaining != 0) return;
+            Vector2 target = new Vector2(x, y);
+            if (!IsPeerNearPoint(peer, target)) { Logger.LogInfo("[Connect][Grab] Denied " + peer.Name + ": cursor is too far from the requested point."); SendGrabDenied(packet.Connection, "Requested point is too far from your network cursor."); return; }
             ActiveGrab grab; string denied;
-            if (!grabs.TryBegin(peer.PeerId, id, new Vector2(x, y), hostTick, out grab, out denied)) { Logger.LogInfo("[Connect][Grab] Denied " + peer.Name + ": " + denied + "."); SendGrabDenied(packet.Connection, denied); return; }
+            if (!grabs.TryBegin(peer.PeerId, id, target, hostTick, out grab, out denied)) { Logger.LogInfo("[Connect][Grab] Denied " + peer.Name + ": " + denied + "."); SendGrabDenied(packet.Connection, denied); return; }
             Writer response = new Writer(16); response.ULong(grab.NetId); response.UInt(grab.Token);
             SendToConnection(packet.Connection, WireMessage.GrabGranted, WireChannel.World, peer.PeerId, response.ToArray(), true);
             Logger.LogInfo("[Connect][Grab] Granted " + peer.Name + " control of netId=" + grab.NetId + ".");
@@ -2095,8 +2116,24 @@ namespace PPGTogether.BepInEx
 
         private void BroadcastSnapshots()
         {
+            List<PPGTogetherIdentity> identities = new List<PPGTogetherIdentity>();
             foreach (PPGTogetherIdentity identity in registry.All())
+                if (identity != null && identity.gameObject != null)
+                    identities.Add(identity);
+            if (identities.Count == 0)
             {
+                snapshotRootCursor = 0;
+                return;
+            }
+            identities.Sort(delegate(PPGTogetherIdentity left, PPGTogetherIdentity right)
+            {
+                return left.NetId < right.NetId ? -1 : (left.NetId > right.NetId ? 1 : 0);
+            });
+            int count = Mathf.Min(MaximumSnapshotRootsPerTick, identities.Count);
+            int start = snapshotRootCursor % identities.Count;
+            for (int selected = 0; selected < count; selected++)
+            {
+                PPGTogetherIdentity identity = identities[(start + selected) % identities.Count];
                 if (identity == null) continue;
                 PhysicalBehaviour physical = identity.GetComponent<PhysicalBehaviour>();
                 if (physical != null && physical.rigidbody != null)
@@ -2122,6 +2159,7 @@ namespace PPGTogether.BepInEx
                 }
                 if (parts.Count > 0) BroadcastRigSnapshot(identity.NetId, paths, parts);
             }
+            snapshotRootCursor = (start + count) % identities.Count;
         }
 
         private void BroadcastRootSnapshot(ulong netId, Rigidbody2D body)
@@ -2328,7 +2366,7 @@ namespace PPGTogether.BepInEx
         private void HandleSpawn(Envelope envelope)
         {
             Reader reader = new Reader(envelope.Payload); ulong id; string key; float x; float y; float rotation; float sx; float sy; float sz;
-            if (!reader.ULong(out id) || !reader.String(out key) || !reader.Float(out x) || !reader.Float(out y) || !reader.Float(out rotation) || !reader.Float(out sx) || !reader.Float(out sy) || !reader.Float(out sz) || reader.Remaining != 0) return;
+            if (!reader.ULong(out id) || id == 0 || !reader.String(out key) || !reader.Float(out x) || !reader.Float(out y) || !reader.Float(out rotation) || !reader.Float(out sx) || !reader.Float(out sy) || !reader.Float(out sz) || reader.Remaining != 0) return;
             PPGTogetherIdentity existing;
             if (registry.TryGet(id, out existing)) { Logger.LogInfo("[Connect][Spawn] Ignored duplicate Spawn netId=" + id + "."); return; }
             SpawnableAsset asset = ModAPI.FindSpawnable(key);
@@ -2336,7 +2374,8 @@ namespace PPGTogether.BepInEx
             GameObject instance = SpawnAsset(asset, new Vector2(x, y), rotation);
             if (instance == null) { Logger.LogWarning("[Connect][Spawn] Guest failed to instantiate Spawn key=" + SafeName(key) + ", netId=" + id + "."); SetStatus("Failed to create: " + SafeName(key)); return; }
             instance.transform.localScale = new Vector3(sx, sy, sz);
-            if (registry.RegisterReplica(instance, id, key) == null) { Logger.LogWarning("[Connect][Spawn] Guest could not register Spawn key=" + SafeName(key) + ", netId=" + id + "."); return; }
+            if (registry.RegisterReplica(instance, id, key) == null) { Logger.LogWarning("[Connect][Spawn] Guest could not register Spawn key=" + SafeName(key) + ", netId=" + id + "."); Destroy(instance); return; }
+            FreezeReplicaPhysics(instance);
             Logger.LogInfo("[Connect][Spawn] Guest created authoritative Spawn: key=" + SafeName(key) + ", netId=" + id + ".");
         }
 
@@ -2348,7 +2387,42 @@ namespace PPGTogether.BepInEx
             if (registry.TryGet(id, out identity) && identity != null)
             {
                 registry.Remove(identity.gameObject);
+                RemoveClientSnapshotTracking(id);
                 Destroy(identity.gameObject);
+            }
+        }
+
+        internal void OnNetworkIdentityDestroyed(PPGTogetherIdentity identity)
+        {
+            if (identity == null || identity.NetId == 0) return;
+            PPGTogetherIdentity registered;
+            if (!registry.TryGet(identity.NetId, out registered) || registered != identity) return;
+            ulong id = identity.NetId;
+            registry.Remove(identity);
+            RemoveClientSnapshotTracking(id);
+            if (!IsHost || !sessionActive) return;
+            Writer writer = new Writer(8); writer.ULong(id);
+            Broadcast(WireMessage.Despawn, WireChannel.World, writer.ToArray(), true);
+            Logger.LogInfo("[Connect][Spawn] Broadcast Despawn for destroyed root netId=" + id + ".");
+        }
+
+        private void RemoveClientSnapshotTracking(ulong id)
+        {
+            clientRootSnapshotTicks.Remove(id);
+            clientRigSnapshotTicks.Remove(id);
+        }
+
+        private static void FreezeReplicaPhysics(GameObject instance)
+        {
+            if (instance == null) return;
+            Rigidbody2D[] bodies = instance.GetComponentsInChildren<Rigidbody2D>(true);
+            for (int i = 0; i < bodies.Length; i++)
+            {
+                Rigidbody2D body = bodies[i];
+                if (body == null) continue;
+                body.bodyType = RigidbodyType2D.Kinematic;
+                body.velocity = Vector2.zero;
+                body.angularVelocity = 0f;
             }
         }
 
@@ -2747,6 +2821,13 @@ namespace PPGTogether.BepInEx
             return (position - cursor.Target).sqrMagnitude <= 36f;
         }
 
+        private bool IsPeerNearPoint(Peer peer, Vector2 point)
+        {
+            if (peer == null) return false;
+            RemoteCursor cursor;
+            return cursors.TryGetValue(peer.PeerId, out cursor) && cursor != null && (point - cursor.Target).sqrMagnitude <= 36f;
+        }
+
         private static PPGTogetherIdentity GetIdentity(PhysicalBehaviour physical)
         {
             return physical == null ? null : physical.GetComponentInParent<PPGTogetherIdentity>();
@@ -2819,7 +2900,7 @@ namespace PPGTogether.BepInEx
         private void Cleanup(bool leaveSteamLobby)
         {
             RestoreHostPhysicsSettings();
-            sessionActive = false; clientPeerId = 0; clientGrabId = 0; clientGrabToken = 0; hostGrabId = 0; hostGrabToken = 0; suppressClientGrabUntilMouseUp = false;
+            sessionActive = false; clientPeerId = 0; clientGrabId = 0; clientGrabToken = 0; hostGrabId = 0; hostGrabToken = 0; snapshotRootCursor = 0; suppressClientGrabUntilMouseUp = false;
             hostStartAwaitingMap = false; clientSessionStartReceived = false; clientMapLoadPending = false; clientMapLoadIssued = false; clientMapInstanceLoaded = false; clientMapSceneTransitionPending = false; clientConnectSceneSwitchCall = false;
             clientMapLoadDeadline = 0f; clientMapReadyAt = 0f; nextClientMapProbeAt = 0f; nextClientMapLoadAttemptAt = 0f; clientRequestedMapIdentity = string.Empty; clientRequestedSceneName = string.Empty; activeMapIdentity = string.Empty;
             botsEnabled = false; botSpawnCount = 0; ReleaseBots(); bots.Clear(); botSpawnedItems.Clear(); botWorld.Clear(); botCatalog.Clear();
@@ -3490,12 +3571,24 @@ namespace PPGTogether.BepInEx
             }
         }
 
-        internal bool ShouldBlockVanillaWorldInput { get { return patchApplied && !IsHost && sessionActive && lobby.HasValue; } }
+        internal bool ShouldBlockVanillaWorldInput { get { return patchApplied && !IsHost && lobby.HasValue && (sessionActive || ClientMapTransitionInProgress); } }
         // CatalogBehaviour.Spawn is independently patched. Do not make its
         // routing depend on the unrelated world-tool patch flag: otherwise a
         // harmless tool compatibility failure silently turns a guest Tab spawn
         // into an unsynchronised local item.
-        internal bool ShouldRouteVanillaCatalogSpawn { get { return !IsHost && sessionActive && lobby.HasValue; } }
+        internal bool ShouldRouteVanillaCatalogSpawn { get { return !IsHost && lobby.HasValue && (sessionActive || ClientMapTransitionInProgress); } }
+        private bool ClientMapTransitionInProgress { get { return clientMapLoadPending || clientMapLoadIssued || clientMapInstanceLoaded || clientMapSceneTransitionPending; } }
+        internal bool AllowClientWorldClear()
+        {
+            if (!lobby.HasValue || IsHost) return true;
+            SetStatus("Only the host can clear or reload the shared map.");
+            return false;
+        }
+        internal void NotifyUnsupportedClientContextAction(string actionName)
+        {
+            SetStatus("This context action is not synchronised. Only host-approved Activate/Delete are available.");
+            Logger.LogInfo("[Connect][Input] Blocked unsynchronised client context action: " + SafeName(actionName) + ".");
+        }
         private bool IsHost { get { return lobby.HasValue && SteamReady() && lobby.Value.Owner.Id == SteamClient.SteamId && transport != null && transport.Hosting; } }
         private static string LocalGameVersion
         {
@@ -3520,7 +3613,15 @@ namespace PPGTogether.BepInEx
         private void SendGrabDenied(Connection connection, string reason) { Writer writer = new Writer(64); writer.String(reason); SendToConnection(connection, WireMessage.GrabDenied, WireChannel.World, 0, writer.ToArray(), true); }
         private void SendToConnection(Connection connection, WireMessage type, WireChannel channel, ushort peerId, byte[] payload, bool reliable) { transport.SendToClient(connection, Wire.Pack(type, channel, nonce, peerId, ++sequence, hostTick, payload), reliable); }
         private void SendToHost(WireMessage type, WireChannel channel, byte[] payload, bool reliable) { transport.SendToHost(Wire.Pack(type, channel, nonce, clientPeerId, ++sequence, hostTick, payload), reliable); }
-        private void Broadcast(WireMessage type, WireChannel channel, byte[] payload, bool reliable) { foreach (Peer peer in peers.Values) SendToConnection(peer.Connection, type, channel, peer.PeerId, payload, reliable); }
+        private void Broadcast(WireMessage type, WireChannel channel, byte[] payload, bool reliable)
+        {
+            foreach (Peer peer in peers.Values)
+            {
+                if (peer == null || peer.Connection == null) continue;
+                if (channel == WireChannel.Snapshot && (peer.MapStatus != PeerMapStatus.Playing || !string.Equals(peer.MapIdentity, activeMapIdentity, StringComparison.Ordinal))) continue;
+                SendToConnection(peer.Connection, type, channel, peer.PeerId, payload, reliable);
+            }
+        }
         private void BroadcastFromPeer(WireMessage type, WireChannel channel, ushort sourcePeerId, byte[] payload, bool reliable) { foreach (Peer peer in peers.Values) SendToConnection(peer.Connection, type, channel, sourcePeerId, payload, reliable); }
 
         private void SetStatus(string value) { status = value ?? string.Empty; Logger.LogInfo("[Connect] " + status); }

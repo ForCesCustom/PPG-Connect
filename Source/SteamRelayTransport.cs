@@ -149,14 +149,17 @@ namespace PPGTogether.BepInEx
                     // Snapshot/cursor packets have a newer replacement within
                     // milliseconds. Dropping an old one is correct; dropping
                     // a reliable Spawn is not.
-                    if (transientReceived.Count < 192)
+                    if (transientReceived.Count >= 192)
                     {
-                        transientReceived.Enqueue(packet);
-                        return;
+                        // Keep the newest visual state. Retaining the oldest
+                        // snapshots under pressure makes a newly-created root
+                        // look permanently stale even though newer poses arrive.
+                        transientReceived.Dequeue();
+                        droppedTransientPackets++;
+                        if (droppedTransientPackets == 1 || droppedTransientPackets % 256 == 0)
+                            plugin.LogTransport("Coalesced " + droppedTransientPackets + " transient relay packet(s) to protect reliable world messages.");
                     }
-                    droppedTransientPackets++;
-                    if (droppedTransientPackets == 1 || droppedTransientPackets % 256 == 0)
-                        plugin.LogTransport("Coalesced " + droppedTransientPackets + " transient relay packet(s) to protect reliable world messages.");
+                    transientReceived.Enqueue(packet);
                     return;
                 }
                 if (reliableReceived.Count < 512)

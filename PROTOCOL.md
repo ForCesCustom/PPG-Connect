@@ -50,6 +50,9 @@ bounded batch of Rigidbody2D instances nested below one registered spawned
 root. Each entry carries a bounded child-index path and host pose. Only the
 host emits it; clients never submit a body transform. Batching prevents a
 compound ragdoll from crowding reliable Spawn messages out of the relay queue.
+The host sends at most 24 registered roots on a snapshot tick in stable
+round-robin order and skips guests that are not `PLAYING` on the active host
+map. Disposable receive queues retain the newest state when under pressure.
 
 ## Envelope
 
@@ -92,7 +95,8 @@ finite floats before a handler can apply the message. A stale nonce is dropped.
   pixels or camera transform is sent.
 - `GrabBegin`, `GrabGranted`, `GrabDenied`, `GrabUpdate`, `GrabEnd`: a guest
   names the registered root under its cursor; the host validates a child collider
-  inside that root and emits an expiring lease token.
+  inside that root, its network cursor proximity and a bounded 1.35-unit
+  collider tolerance for relay pose delay, then emits an expiring lease token.
 - `SpawnRequest`, `Spawn`, `Despawn`: catalog key plus bounded pose, with actual
   object creation performed by the host only.
 - `InteractionRequest`: one-byte action plus an eight-byte root NetId. The host

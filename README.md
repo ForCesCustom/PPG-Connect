@@ -2,7 +2,7 @@
 
 [Русская версия](#русская-версия) · [English](#english)
 
-> Current package: **v0.1.44** · protocol **v7** · People Playground **1.27.17**
+> Current package: **v0.1.45** · protocol **v7** · People Playground **1.27.17**
 
 ## English
 
@@ -15,7 +15,7 @@ addresses.
 
 Download the complete plug-and-play ZIP:
 
-**[Connect-v0.1.44.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.44.zip)**
+**[Connect-v0.1.45.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.45.zip)**
 
 1. Close People Playground.
 2. Extract the full ZIP into the folder containing `People Playground.exe`.
@@ -47,6 +47,13 @@ replays a bounded world baseline twice after a guest becomes `PLAYING`, and
 names the requested Connect root during a grab. Replica poses are applied
 directly from the host. This is protocol v7: every player must update to this
 exact ZIP.
+
+Version 0.1.45 closes several remaining routes to a client-only world: guests
+cannot run unsupported native context actions or the Clear buttons, and input
+is gated during a host-led map change. It also sends one Despawn when a compound
+root is destroyed, bounds snapshot traffic fairly across large worlds, and makes
+moving registered objects more tolerant to a small relay pose delay during grab.
+Both players must update to this exact ZIP; the wire protocol remains v7.
 
 ### How multiplayer works
 
@@ -141,7 +148,7 @@ Steam-клиент, не открывает порты и не передаёт 
 
 Скачай полный plug-and-play архив:
 
-**[Connect-v0.1.44.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.44.zip)**
+**[Connect-v0.1.45.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.45.zip)**
 
 1. Полностью закрой People Playground.
 2. Распакуй весь ZIP в папку, где лежит `People Playground.exe`.
@@ -171,6 +178,14 @@ People Playground: сетевой спавн временно выбирает �
 после `PLAYING` проходит два ограниченных круга, а grab передаёт точный Connect
 root. Поза реплики применяется напрямую от хоста. Это протокол v7 — оба
 игрока должны поставить именно этот ZIP.
+
+Версия 0.1.45 закрывает оставшиеся пути к локальному «параллельному миру»:
+гость не может выполнять неподдерживаемые действия ПКМ или кнопки очистки, а
+во время смены карты хоста ввод блокируется до подтверждённой загрузки карты.
+Также уничтожение составного root отправляет один Despawn, snapshot честно
+распределяются в большой сцене, а grab терпимее к небольшой задержке позы
+движущегося зарегистрированного предмета. Оба игрока должны обновиться до
+этого ZIP; wire protocol остаётся v7.
 
 ### Как работает мультиплеер
 

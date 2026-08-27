@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.1.45 — Audit hardening for shared-world authority
+
+- Blocked all native Context Menu actions on a connected guest except the two
+  actions Connect explicitly routes through the host: Activate and Delete.
+  This prevents local-only Paste, Freeze, Ignite, Save/Load, layer, resize and
+  similar actions from silently creating a parallel world.
+- Blocked the base-game Clear Everything, Clear Living and Clear Debris buttons
+  for a connected guest. The host remains the sole authority for world reset or
+  map reload.
+- A guest now stops accepting input and object state immediately when a host
+  map change begins. It returns to `PLAYING` only after its own requested map
+  is verified, then receives the host baseline.
+- Added root destruction tracking so a compound spawned root (including a
+  person) broadcasts exactly one Despawn when the game destroys it. Replica
+  physics is frozen immediately after a Spawn packet, avoiding a local
+  simulation step before the first host pose arrives.
+- Snapshot delivery is now round-robin and capped at 24 registered roots per
+  snapshot tick; receivers retain the newest disposable packet and hosts skip
+  snapshots for guests that have not reached `PLAYING` on the current map.
+- Grab validation still requires the requested registered root and proximity to
+  the sender's network cursor, but now accepts a bounded 1.35-unit collider
+  tolerance to tolerate relay pose delay for moving targets.
+- Recovery links, Workshop Companion marker and installation health smoke test
+  now point to this exact package. Wire protocol remains v7, but the handshake
+  requires both players to use v0.1.45.
+
 ## 0.1.44 — Authoritative world convergence
 
 - Fixed the underlying People Playground catalog mismatch: its normal
