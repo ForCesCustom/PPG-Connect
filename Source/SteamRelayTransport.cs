@@ -175,7 +175,9 @@ namespace PPGTogether.BepInEx
         {
             if (data == null || data.Length < Wire.HeaderSize) return false;
             WireMessage type = (WireMessage)data[6];
-            return type == WireMessage.Cursor || type == WireMessage.Snapshot || type == WireMessage.RigSnapshot || type == WireMessage.GrabUpdate;
+            return type == WireMessage.Cursor || type == WireMessage.Snapshot || type == WireMessage.RigSnapshot ||
+                type == WireMessage.ObjectState || type == WireMessage.GlobalState || type == WireMessage.WireVisual ||
+                type == WireMessage.WoundState || type == WireMessage.GrabUpdate;
         }
 
         private sealed class HostSocket : SocketManager

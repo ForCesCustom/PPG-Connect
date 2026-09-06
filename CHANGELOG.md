@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.1.46 — Shared state, world lifecycle and adaptive menu
+
+- Added bounded native wound/skin-mark replication, including bullet/stab
+  marks, healed-wound clearing and relative age. Detached parts retain cached
+  identity for grabs. Suppressed inherited local blood simulation.
+- New state packets use the disposable queue so reliable spawn/map events
+  retain priority. Required-patch failures now prevent multiplayer.
+
+- Replaced pose-only broadcasting with bounded typed object-state chunks:
+  transforms, scale, supported renderer/collider state and selected physical,
+  limb-health and skin acid/rot values. Cached initial node references preserve
+  existing parts after host detachment. Layout mismatches are reported.
+- Added world epochs to gameplay packets, map commands and guest map status.
+  Reloading the same map starts a new epoch and requires a fresh client load
+  callback; stale packets cannot mutate the new world.
+- Discover locally identifiable pre-session/copied catalogue roots on the host.
+  Repeat bounded reliable baseline passes without resetting an active pass.
+  Complete presence manifests remove missing replicas while retaining spawns
+  newer than a manifest's high-water ID.
+- Routed guest Freeze, NoCollide, Weightless and Ignite through explicit host
+  actions. Clear, pause, slow motion, shared host Undo and supported environment
+  changes now use host-validated requests. Unsupported dynamic actions remain
+  blocked; Copy/Save/Follow stay local.
+- Added host global-state replication and bounded host wire-line visuals.
+  Wire visuals do not implement guest wire creation or electrical simulation.
+- Rebuilt the Connect panel with adaptive sizing, scrolling, player cards,
+  clearer status and reorganised player/host settings.
+- Bumped protocol to v8. Every player must install the complete v0.1.46 ZIP.
+  Added focused manifest/object-state/shared-world checks. Full two-account
+  verification and universal Workshop compatibility are not claimed.
+
 ## 0.1.45 — Audit hardening for shared-world authority
 
 - Blocked all native Context Menu actions on a connected guest except the two

@@ -5,6 +5,12 @@ using HarmonyLib;
 
 namespace PPGTogether.BepInEx
 {
+    [HarmonyPatch(typeof(CameraControlBehaviour), "ZoomCamera")]
+    internal static class ConnectMenuZoomPatch
+    {
+        private static bool Prefix() { var p = PPGTogetherPlugin.Instance; return p == null || !p.ConnectMenuContainsCursor; }
+    }
+
     [HarmonyPatch(typeof(ToolControllerBehaviour), "HandleTools")]
     internal static class ClientWorldInputPatch
     {
@@ -12,7 +18,7 @@ namespace PPGTogether.BepInEx
         {
             PPGTogetherPlugin plugin = PPGTogetherPlugin.Instance;
             if (plugin != null) plugin.HandleClientBlockedToolInput();
-            return plugin == null || !plugin.ShouldBlockVanillaWorldInput;
+            return plugin == null || (!plugin.ConnectMenuBlocksTools && !plugin.ShouldBlockVanillaWorldInput);
         }
     }
 
@@ -109,7 +115,9 @@ namespace PPGTogether.BepInEx
         {
             PPGTogetherPlugin plugin = PPGTogetherPlugin.Instance;
             if (plugin == null || !plugin.ShouldBlockVanillaWorldInput) return true;
-            plugin.NotifyUnsupportedClientContextAction(__originalMethod == null ? "Context action" : __originalMethod.Name);
+            string name = __originalMethod == null ? "Context action" : __originalMethod.Name;
+            if (name == "FollowAction" || name == "CopyAction" || name == "SaveAction") return true;
+            if (!plugin.RouteSharedContextAction(name)) plugin.NotifyUnsupportedClientContextAction(name);
             return false;
         }
     }
@@ -120,7 +128,7 @@ namespace PPGTogether.BepInEx
         private static bool Prefix()
         {
             PPGTogetherPlugin plugin = PPGTogetherPlugin.Instance;
-            return plugin == null || plugin.AllowClientWorldClear();
+            return plugin == null || plugin.RouteWorldCommand(0);
         }
     }
 
@@ -130,7 +138,7 @@ namespace PPGTogether.BepInEx
         private static bool Prefix()
         {
             PPGTogetherPlugin plugin = PPGTogetherPlugin.Instance;
-            return plugin == null || plugin.AllowClientWorldClear();
+            return plugin == null || plugin.RouteWorldCommand(1);
         }
     }
 
@@ -140,8 +148,40 @@ namespace PPGTogether.BepInEx
         private static bool Prefix()
         {
             PPGTogetherPlugin plugin = PPGTogetherPlugin.Instance;
-            return plugin == null || plugin.AllowClientWorldClear();
+            return plugin == null || plugin.RouteWorldCommand(2);
         }
+    }
+
+    [HarmonyPatch(typeof(Global), "TogglePaused")]
+    internal static class ClientPausePatch
+    {
+        private static bool Prefix() { var p = PPGTogetherPlugin.Instance; return p == null || p.RouteWorldCommand(3); }
+    }
+
+    [HarmonyPatch(typeof(Global), "ToggleSlowmotion")]
+    internal static class ClientSlowmotionPatch
+    {
+        private static bool Prefix() { var p = PPGTogetherPlugin.Instance; return p == null || p.RouteWorldCommand(4); }
+    }
+
+    [HarmonyPatch(typeof(UndoControllerBehaviour), "Undo")]
+    internal static class ClientUndoPatch
+    {
+        private static bool Prefix() { var p = PPGTogetherPlugin.Instance; return p == null || p.RouteWorldCommand(5); }
+    }
+
+    [HarmonyPatch(typeof(EnvironmentSettingsController), "SetValue")]
+    internal static class ClientEnvironmentPatch
+    {
+        private static bool Prefix(FieldInfo member, object value)
+        { var p = PPGTogetherPlugin.Instance; return p == null || p.RouteEnvironmentChange(member, value); }
+    }
+
+    [HarmonyPatch(typeof(ContextMenuBehaviour), "CreateDynamicButtons")]
+    internal static class ClientDynamicActionsPatch
+    {
+        // Mod-supplied arbitrary closures are not a safe network protocol.
+        private static bool Prefix() { var p = PPGTogetherPlugin.Instance; return p == null || !p.ShouldBlockVanillaWorldInput; }
     }
 
     [HarmonyPatch(typeof(ToolControllerBehaviour), "HandleIndirectInteraction")]

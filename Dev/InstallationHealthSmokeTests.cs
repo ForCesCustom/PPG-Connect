@@ -22,7 +22,7 @@ namespace PPGTogether.BepInEx
                 InstallationHealth complete = InstallationHealth.Check(root, pluginDirectory, pluginAssembly);
                 if (complete.RequiresRecovery || complete.MissingParts().Count != 0) return 1;
                 if (!ConnectSupportLinks.IsSafeGitHubUrl(ConnectSupportLinks.PublishedReleaseUrl)) return 2;
-                if (ConnectSupportLinks.PublishedReleaseUrl.IndexOf("Connect-v0.1.45.zip", StringComparison.Ordinal) < 0) return 3;
+                if (ConnectSupportLinks.PublishedReleaseUrl.IndexOf("Connect-v0.1.46.zip", StringComparison.Ordinal) < 0) return 3;
                 if (ConnectSupportLinks.IsSafeGitHubUrl("http://github.com/ForCesCustom/PPG-Connect")) return 4;
                 if (ConnectSupportLinks.IsSafeGitHubUrl("https://github.com.evil.example/ForCesCustom/PPG-Connect")) return 5;
 

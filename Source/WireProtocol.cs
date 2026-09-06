@@ -46,7 +46,13 @@ namespace PPGTogether.BepInEx
         // nested inside one registered spawnable (for example ragdoll limbs).
         // A single bounded packet per root prevents limb traffic from starving
         // reliable Spawn and Despawn messages.
-        RigSnapshot = 24
+        RigSnapshot = 24,
+        ObjectState = 25,
+        WorldManifest = 26,
+        GlobalState = 27,
+        WireVisual = 28,
+        WorldCommand = 29,
+        WoundState = 30
     }
 
     internal enum WireChannel : byte
@@ -60,10 +66,26 @@ namespace PPGTogether.BepInEx
     internal static class Wire
     {
         internal const uint Magic = 0x54475050;
-        internal const ushort ProtocolVersion = 7;
+        internal const ushort ProtocolVersion = 8;
         internal const int HeaderSize = 30;
         internal const int MaxPacketBytes = 49152;
         internal const int MaxStringBytes = 256;
+
+        internal static WireChannel ChannelFor(WireMessage type)
+        {
+            switch (type)
+            {
+                case WireMessage.Cursor: return WireChannel.Cursor;
+                case WireMessage.Snapshot: case WireMessage.RigSnapshot: case WireMessage.ObjectState:
+                case WireMessage.GlobalState: case WireMessage.WireVisual: case WireMessage.WoundState: return WireChannel.Snapshot;
+                case WireMessage.GrabBegin: case WireMessage.GrabGranted: case WireMessage.GrabDenied:
+                case WireMessage.GrabUpdate: case WireMessage.GrabEnd: case WireMessage.SpawnRequest:
+                case WireMessage.Spawn: case WireMessage.Despawn: case WireMessage.ActionDenied:
+                case WireMessage.InteractionRequest: case WireMessage.WorldManifest: case WireMessage.WorldCommand:
+                    return WireChannel.World;
+                default: return WireChannel.Control;
+            }
+        }
 
         internal static byte[] Pack(WireMessage type, WireChannel channel, ulong nonce, ushort peerId, uint sequence, uint tick, byte[] payload)
         {
@@ -104,6 +126,7 @@ namespace PPGTogether.BepInEx
                 return false;
             value.Type = (WireMessage)type;
             value.Channel = (WireChannel)channel;
+            if (value.Channel != ChannelFor(value.Type)) return false;
             return reader.Raw((int)length, out value.Payload) && reader.Remaining == 0;
         }
     }

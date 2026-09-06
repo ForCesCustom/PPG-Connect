@@ -12,6 +12,11 @@ namespace PPGTogether.BepInEx
         internal readonly GUIStyle ButtonSmall;
         internal readonly GUIStyle Input;
         internal readonly GUIStyle Center;
+        internal readonly GUIStyle Heading;
+        internal readonly GUIStyle Body;
+        internal readonly GUIStyle MutedBody;
+        internal readonly GUIStyle Eyebrow;
+        internal readonly GUIStyle Stat;
 
         private readonly Texture2D roundedLarge;
         private readonly Texture2D roundedMedium;
@@ -46,6 +51,13 @@ namespace PPGTogether.BepInEx
             Input.hover.background = roundedSmall;
             Input.active.background = roundedSmall;
             Center = Text(12, FontStyle.Bold, new Color(0.91f, 0.97f, 1f, 1f), TextAnchor.MiddleCenter);
+            Heading = Text(25, FontStyle.Bold, new Color(0.95f, 0.97f, 1f, 1f), TextAnchor.MiddleLeft);
+            Body = Text(13, FontStyle.Normal, new Color(0.83f, 0.88f, 0.95f, 1f), TextAnchor.UpperLeft);
+            Body.wordWrap = true;
+            MutedBody = new GUIStyle(Body);
+            MutedBody.normal.textColor = new Color(0.61f, 0.68f, 0.78f, 1f);
+            Eyebrow = Text(10, FontStyle.Bold, new Color(0.46f, 0.84f, 0.88f, 1f), TextAnchor.MiddleLeft);
+            Stat = Text(23, FontStyle.Bold, new Color(0.93f, 0.96f, 1f, 1f), TextAnchor.MiddleLeft);
         }
 
         internal void Panel(Rect rect, Color color) { Draw(rect, color, panelShape); }
@@ -79,7 +91,7 @@ namespace PPGTogether.BepInEx
         private static void Draw(Rect rect, Color color, GUIStyle style)
         {
             Color previous = GUI.color;
-            GUI.color = color;
+            GUI.color = new Color(color.r * previous.r, color.g * previous.g, color.b * previous.b, color.a * previous.a);
             GUI.Box(rect, GUIContent.none, style);
             GUI.color = previous;
         }
@@ -87,7 +99,7 @@ namespace PPGTogether.BepInEx
         private static void DrawTexture(Rect rect, Color color, Texture2D texture)
         {
             Color previous = GUI.color;
-            GUI.color = color;
+            GUI.color = new Color(color.r * previous.r, color.g * previous.g, color.b * previous.b, color.a * previous.a);
             GUI.DrawTexture(rect, texture, ScaleMode.StretchToFill, true);
             GUI.color = previous;
         }

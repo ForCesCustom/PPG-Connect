@@ -163,7 +163,7 @@ namespace PPGTogether.BepInEx
             // Rigidbody2D instances on child objects. The network identity is
             // deliberately attached to the spawned root, so a child limb must
             // resolve its parent identity before it can receive a grab lease.
-            PPGTogetherIdentity identity = physical.GetComponentInParent<PPGTogetherIdentity>();
+            PPGTogetherIdentity identity = ReplicatedObjectState.FindIdentity(physical);
             return TryBeginPhysical(peerId, identity, physical, point, point, tick, out grab, out denial);
         }
 
@@ -181,14 +181,14 @@ namespace PPGTogether.BepInEx
                 denial = "Object no longer exists in the host world";
                 return false;
             }
-            PhysicalBehaviour[] candidates = identity.GetComponentsInChildren<PhysicalBehaviour>(true);
+            PhysicalBehaviour[] candidates = ReplicatedObjectState.GetPhysicalParts(identity);
             PhysicalBehaviour nearest = null;
             Vector2 nearestAnchor = point;
             float nearestDistanceSquared = NetworkGrabTolerance * NetworkGrabTolerance;
             for (int i = 0; i < candidates.Length; i++)
             {
                 PhysicalBehaviour physical = candidates[i];
-                if (physical == null || physical.rigidbody == null || !physical.Selectable) continue;
+                if (physical == null || !physical.gameObject.activeInHierarchy || physical.rigidbody == null || !physical.Selectable) continue;
                 Collider2D[] colliders = physical.GetComponentsInChildren<Collider2D>(true);
                 for (int j = 0; j < colliders.Length; j++)
                 {

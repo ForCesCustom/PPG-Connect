@@ -1,127 +1,117 @@
-# Connect relay protocol v7
+# Connect relay protocol v8
 
-The BepInEx plugin sends this binary protocol through the game-supplied
-Facepunch `SteamNetworkingSockets` relay connection. It never serializes CLR
-objects, method names, files, paths, assemblies or arbitrary GameObjects.
+Version 0.1.46 uses the game-supplied Facepunch SteamNetworkingSockets context.
+All peers must agree on protocol, Connect version and game version. Payloads
+are typed bounded records; files, CLR object graphs, method names and remote
+save deserialization are absent.
 
-`BotMode` (`18`) is a reliable host-to-client control message containing an
-enabled flag and a bounded bot count (0–3). Bot movement uses the existing
-unreliable `Cursor` message with a reserved bot flag. Bot decisions run only
-inside the host process; bots never submit remote network actions or impersonate
-a Steam identity.
-
-`SpawnRequest` is a client-to-host reliable World message. It contains only a
-bounded spawnable key, flip flag and finite world position. The selected key
-comes from each player's own normal Tab catalog. The host resolves the key in
-its catalog and creates the item before broadcasting the authoritative `Spawn`
-event.
-
-`HostSettings` (`19`) is a reliable host-to-client Control message. It contains
-only bounded numeric server settings (Physics2D velocity/position iterations,
-snapshot rate, Connect object cap, guest spawn cap, permissions and bot cap).
-It is informational to clients: only the lobby owner applies or changes host
-settings. `ActionDenied` (`20`) returns a bounded reason for a denied gameplay
-request and never closes a valid relay connection.
-
-`InteractionRequest` (`21`) is a reliable client-to-host World message with an
-interaction enum and one registered root NetId. `Activate` and `Delete` are
-one-shot actions. `ActivateBegin`, `ActivateKeepAlive` and `ActivateEnd` form a
-short renewable host-side continuous-use lease for automatic weapons and other
-components that use vanilla `IsBeingUsedContinuously()`. The host validates
-lobby identity, permissions, rate limit, object existence and cursor proximity
-before calling the equivalent vanilla action. A client never supplies a method
-name or executes its own authoritative physics action.
-
-`MapLoad` (`22`) is a reliable host-to-client Control message containing one
-bounded People Playground `Map.UniqueIdentity`. The host obtains it from the
-game's loaded `MapLoaderBehaviour`; the client resolves it only against maps
-already installed locally and invokes the same `MapLoaderBehaviour.Load()`
-path. No map files, Workshop assets or paths cross the network.
-
-`ClientMapStatus` (`23`) is a reliable client-to-host Control message with one
-bounded host-issued `Map.UniqueIdentity` and a status byte: `LOADING MAP`,
-`SYNCING`, `PLAYING`, or `MAP FAILED`. It only drives the host lobby card. The
-host rejects an unknown peer, mismatched peer ID, stale map identity, malformed
-payload, or status outside that small range; it never accepts a client-selected
-map or scene name.
-
-`RigSnapshot` (`24`) is an unreliable host-to-client Snapshot message for a
-bounded batch of Rigidbody2D instances nested below one registered spawned
-root. Each entry carries a bounded child-index path and host pose. Only the
-host emits it; clients never submit a body transform. Batching prevents a
-compound ragdoll from crowding reliable Spawn messages out of the relay queue.
-The host sends at most 24 registered roots on a snapshot tick in stable
-round-robin order and skips guests that are not `PLAYING` on the active host
-map. Disposable receive queues retain the newest state when under pressure.
-
-## Envelope
+## Envelope and authority
 
 All fields are little-endian. The fixed header is 30 bytes.
 
 | Offset | Bytes | Field |
 |---:|---:|---|
-| 0 | 4 | Magic `0x54475050` (`PPGT`, retained for wire compatibility) |
-| 4 | 2 | Protocol version (`7`) |
+| 0 | 4 | Magic 0x54475050 |
+| 4 | 2 | Protocol version 8 |
 | 6 | 1 | Message type |
 | 7 | 1 | Logical channel |
 | 8 | 8 | Session nonce |
-| 16 | 2 | Source peer ID |
+| 16 | 2 | Peer ID |
 | 18 | 4 | Sequence |
-| 22 | 4 | Host tick |
+| 22 | 4 | Tick |
 | 26 | 4 | Payload length |
 | 30 | N | Payload |
 
-The hard packet limit is 49,152 bytes. The reader validates the fixed header,
-magic, protocol, known type/channel, exact declared length, bounded strings and
-finite floats before a handler can apply the message. A stale nonce is dropped.
+Maximum packet size is 49,152 bytes; strings are bounded to 256 UTF-8 bytes.
+The decoder rejects a message on the wrong designated channel. Handlers
+validate exact lengths, finite/bounded values and authenticated sender role.
+
+Every **World** and **Snapshot** payload starts with a uint32 world epoch.
+The receiver removes and validates this prefix before decoding the message.
+Late packets from previous maps, including a reload of the same map, are
+discarded. Steam lobby metadata carries only map/session directives, not world
+objects.
 
 ## Channels
 
-- `Control` (reliable): Hello, Welcome, Reject, `MapLoad`, `ClientMapStatus`,
-  session start/end, BotMode and HostSettings.
-- `World` (reliable unless an update): grab lease, spawn/despawn and bounded
-  interaction requests.
-- `Snapshot` (unreliable): root Rigidbody2D state and nested `RigSnapshot`
-  poses for compound registered spawnables.
-- `Cursor` (unreliable): world-space cursor state.
+- Control: reliable Hello/Welcome/Reject, SessionStarted/Ending, MapLoad,
+  ClientMapStatus, BotMode and HostSettings.
+- World: spawn/despawn, grab leases, InteractionRequest, ActionDenied,
+  WorldManifest and WorldCommand. State-changing events are reliable; grab
+  movement uses disposable updates.
+- Snapshot: ObjectState, GlobalState, WireVisual and WoundState. Legacy Snapshot and
+  RigSnapshot IDs remain recognised. Disposable queues retain recent state.
+- Cursor: independent world-space cursor data; camera and menu state stay local.
 
-## Implemented messages
+## World and map records
 
-- `Hello`: protocol/mod/game version, claimed Steam ID, lobby ID and nonce. The
-  host compares the claim with the Steam relay connection identity and current
-  lobby membership.
-- `Welcome` / `Reject`: assigned peer ID or bounded readable rejection reason.
-- `Cursor`: `Vector2` world position, button mask and UI-busy flag; no screen
-  pixels or camera transform is sent.
-- `GrabBegin`, `GrabGranted`, `GrabDenied`, `GrabUpdate`, `GrabEnd`: a guest
-  names the registered root under its cursor; the host validates a child collider
-  inside that root, its network cursor proximity and a bounded 1.35-unit
-  collider tolerance for relay pose delay, then emits an expiring lease token.
-- `SpawnRequest`, `Spawn`, `Despawn`: catalog key plus bounded pose, with actual
-  object creation performed by the host only.
-- `InteractionRequest`: one-byte action plus an eight-byte root NetId. The host
-  applies only registered vanilla Activate/Delete operations after validation.
-  Continuous Activate uses begin/keep-alive/end rather than a per-frame packet;
-  a lease expires if the client disconnects or stops renewing it. It never
-  invokes a method name supplied by a client.
-- `Snapshot`: registered root network ID plus root Rigidbody2D pose/velocity.
-- `RigSnapshot`: registered root ID plus up to 48 child-index-path entries and
-  their nested Rigidbody2D host poses; used for compound spawnables such as
-  people. Older host ticks are ignored by replicas.
-- `MapLoad`: host-selected installed-map identity. The client displays a clear
-  local-map/timeout status if that identity cannot be resolved; it never enters
-  the active gameplay state while still at the title screen.
-- `ClientMapStatus`: guest progress for the host UI only; it is validated against
-  the host's current map and cannot alter session map authority.
-- `HostSettings`: host-only, fixed 12-byte payload: velocity iterations (1–16),
-  position iterations (1–16), snapshot rate (10–30 Hz), object cap (25–1000),
-  guest spawn cap (1–60/min), spawn/grab/activate/delete/bot permission flags
-  and bot spawn cap (0–100).
-- `ActionDenied`: bounded status text for a rejected spawn or other gameplay
-  action; unlike `Reject`, it never terminates the session connection.
+- MapLoad (22): uint32 epoch followed by installed map identity string.
+  Clients resolve only locally installed maps and verify the actual loaded
+  root. Repeated directives for the same epoch are ignored.
+- ClientMapStatus (23): uint32 epoch, status byte and map identity string.
+  Host validates both epoch and map before accepting PLAYING and scheduling
+  a reliable baseline.
+- SpawnRequest (11): catalogue key, world X/Y and flip flag. The host validates
+  availability/permission/rate and creates the requested asset.
+- Spawn (12): root ID, catalogue key, position, rotation and local scale.
+  Each guest instantiates its local matching asset and primes its initial
+  node layout before state application. Despawn (13) carries a root ID.
+- WorldManifest (26): epoch, uint64 high-water ID, uint16 count and up to
+  1000 unique nonzero live root IDs. This inner epoch is additional to the
+  World-channel prefix. Only a complete valid manifest removes absent replicas
+  at or below its high-water ID; newer spawns survive an older manifest.
+- Reliable spawn baselines run in bounded passes after PLAYING and repeat
+  after completion with an idle interval. An active pass is not reset by
+  periodic repair, so large worlds can finish.
 
-## Explicitly absent
+## Typed state
 
-There is no type deserialization, client `SetObjectPosition`, file transfer,
-asset-bundle transfer, remote code execution, arbitrary activation RPC, or
-initial-world object graph transfer in v0.1.0.
+ObjectState (25) carries a registered root ID, initial layout fingerprint,
+bounded total/offset and a chunk of typed node state. Layouts are limited to
+256 nodes per root. Initial node references remain cached when host limbs
+detach; received paths are not resolved against a reordered hierarchy.
+
+Supported fields cover poses, scale, active/renderer/collider state and the
+explicit physical, limb and skin values encoded by ReplicatedObjectState.
+Unknown schemas/layouts, invalid counts and nonfinite fields are rejected.
+A layout mismatch is reported instead of applying values to unrelated nodes.
+Per-root/per-chunk tick tracking rejects older updates.
+
+GlobalState (27) carries bounded pause/slow-motion and supported environmental
+settings. WireVisual (28) carries up to 128 bounded line records for a guest
+visual representation; it does not authorize guest wire creation or electrical
+simulation. Large object-state batches resume across ticks instead of always
+restarting from their first parts.
+
+## Player requests
+
+WoundState (30) carries root ID, cached layout fingerprint, uint16 node index,
+track-age boolean and up to 128 skin points. Each point has local X/Y,
+intensity, fixed damage kind (0–5), and bounded age translated to local game
+time before the native skin Sync method. Empty records clear healed wounds.
+Packets are capped at 2304 bytes and sequenced per (root, node). Periodic
+bounded round-robin replacement also repairs loss and joining clients.
+
+GrabBegin names the root and world point. The host checks the sender's cursor,
+a collider belonging to that root and a bounded 1.35-unit delay tolerance,
+then issues a short lease renewed by GrabUpdate and ended by GrabEnd.
+
+InteractionRequest (21) uses a fixed action enum plus registered root ID.
+Activate/Delete, continuous activation begin/renew/end, Freeze, NoCollide,
+Weightless and Ignite are handled by explicit host code after permission,
+range and rate validation.
+
+WorldCommand (29) uses fixed command bytes: Clear Everything/Living/Debris,
+pause, slow motion, host-history Undo and whitelisted environment fields.
+Clear/Undo use delete permission; pause/environment and other applicable
+controls use activation permission. No peer supplies a method name.
+
+HostSettings (19) communicates the bounded host policy; guests cannot change
+it. ActionDenied (20) explains a denied request without closing the relay.
+
+## Scope
+
+There is no arbitrary Workshop synchronization, asset/file transfer, automatic
+mod download, complete wound/particle/projectile replication, dynamic object
+graph reconstruction or host migration. Camera and selection remain local.
+See KNOWN_LIMITATIONS.md for the tested scope and runtime limitations.

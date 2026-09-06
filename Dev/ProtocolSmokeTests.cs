@@ -44,14 +44,16 @@ namespace PPGTogether.BepInEx
             if (!Wire.TryUnpack(interactionPacket, out envelope) || envelope.Type != WireMessage.InteractionRequest || envelope.Channel != WireChannel.World || envelope.Payload.Length != 9) return 12;
 
             Writer mapStatusWriter = new Writer(32);
+            mapStatusWriter.UInt(17);
             mapStatusWriter.Byte(3);
             mapStatusWriter.String("substructure");
             byte[] mapStatusPacket = Wire.Pack(WireMessage.ClientMapStatus, WireChannel.Control, 26UL, 2, 11, 13, mapStatusWriter.ToArray());
             if (!Wire.TryUnpack(mapStatusPacket, out envelope) || envelope.Type != WireMessage.ClientMapStatus || envelope.Channel != WireChannel.Control) return 13;
             Reader mapStatusReader = new Reader(envelope.Payload);
             byte mapStatus;
+            uint mapEpoch;
             string mapIdentity;
-            if (!mapStatusReader.Byte(out mapStatus) || !mapStatusReader.String(out mapIdentity) || mapStatusReader.Remaining != 0 || mapStatus != 3 || mapIdentity != "substructure") return 14;
+            if (!mapStatusReader.UInt(out mapEpoch) || mapEpoch != 17 || !mapStatusReader.Byte(out mapStatus) || !mapStatusReader.String(out mapIdentity) || mapStatusReader.Remaining != 0 || mapStatus != 3 || mapIdentity != "substructure") return 14;
 
             Writer rigWriter = new Writer(96);
             rigWriter.ULong(77UL);
@@ -112,6 +114,9 @@ namespace PPGTogether.BepInEx
             activations.End(1, 99UL);
             activations.FixedUpdate(22, delegate(ulong id) { continuousCalls++; });
             if (continuousCalls != 1 || activations.IsActive(99UL)) return 24;
+            foreach (WireMessage kind in Enum.GetValues(typeof(WireMessage)))
+                foreach (WireChannel channel in Enum.GetValues(typeof(WireChannel)))
+                    if (Wire.TryUnpack(Wire.Pack(kind, channel, 1, 1, 1, 1, new byte[0]), out envelope) != (channel == Wire.ChannelFor(kind))) return 25;
             return 0;
         }
     }

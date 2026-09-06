@@ -1,65 +1,50 @@
-# Known limitations — Connect BepInEx edition v0.1.45
+# Known limitations — Connect v0.1.46
 
-- Every player must extract the same complete Connect ZIP into the game root.
-  It already contains BepInEx 5 x64, but Connect remains a non-standard loader
-  with Harmony patches rather than a normal People Playground source mod.
-- This environment cannot run an automated two-account Steam test. The manual
-  relay, handshake, map-load and spawn-request test established that current
-  People Playground can expose temporary catalog keys such as `0` or `zzzzz`.
-  v0.1.44 also scopes People Playground's local `SelectedItem` during the
-  networked instantiation path, so each peer creates the catalog asset carried
-  by the authoritative Spawn rather than its own locally selected Tab item.
-  v0.1.45 additionally blocks unsupported guest Context Menu and Clear actions,
-  gates input during a host map transition, and bounds snapshot traffic. A real
-  two-account run is still required to confirm representative Tab spawns.
-- Join-in-progress does not reconstruct pre-existing map objects. Start with an
-  empty map, create the lobby, press **START & SYNC MAP** and, if needed, choose
-  the host map; then use the normal Tab catalog for objects expected to
-  replicate.
-- A joining or delayed guest receives two bounded reliable reconciliation passes
-  of objects created after session start once it reports `PLAYING`, but objects
-  present before the session started are still intentionally outside this first
-  world-transfer implementation.
-- Replication covers post-start vanilla spawnables with root and nested
-  Rigidbody2D host poses, including compound-object grab motion. It does not
-  serialize all component state; biology/dismemberment topology, joints, wires,
-  damage and explosions remain outside the protocol.
-  Existing objects, ragdoll biology/dismemberment, joints, wires, custom components,
-  explosions, projectile/damage state,
-  freeze, rotate, undo and save/load are not supported. Map selection and map
-  changes now follow the host by installed `Map.UniqueIdentity` through the
-  game's normal sandbox scene transition, but the map itself must exist locally
-  and its pre-existing objects still are not rebuilt.
-  Direct
-  vanilla Use (including host-side continuous Use for automatic weapons) plus
-  context Activate/Delete are supported only for a registered Connect root;
-  arbitrary context buttons from the game or Workshop are not. On a connected
-  guest, unsupported context buttons and Clear Everything/Clear Living/Clear
-  Debris are deliberately blocked rather than executed locally.
-- A remote player can request a configured vanilla spawnable by its stable
-  catalog name. There is no mod-set manifest comparison or Workshop download;
-  use vanilla content for v0.1.0.
-- Public lobbies use Steam's lobby visibility only; no lobby browser, text chat,
-  kick UI, Rich Presence or host migration is implemented.
-- Bot Mode is host-only and intentionally limited to three bots. Its vanilla
-  spawn cap is configurable by the host from 0 to 100 per session. Bots do not
-  join the Steam lobby or use a Steam avatar. They build a bounded local model
-  of the map and can classify installed catalog content, but full simulation of
-  arbitrary Workshop component semantics is not claimed. They may activate
-  compatible registered Connect roots through the host's vanilla Use path,
-  grab/place registered roots through the same lease system as players, and
-  clean only their own old unleased creations. They never delete player-built
-  items, emit arbitrary context actions, create wires or manipulate files.
-- The normal Tab catalog is now the only spawn UI. The session must use the
-  same catalog content: there is no mod-set manifest comparison or Workshop
-  download, and unknown/custom spawnables are not guaranteed to resolve.
-- The host validates relay identity, lobby membership, protocol/game/mod version,
-  nonce, bounded packet length, finite coordinates, and a host-side overlap test.
-  This is not a claim of complete anti-cheat coverage.
-- The Host Settings panel covers Connect's currently implemented spawn/grab/use/
-  delete/bot rules, solver iterations and snapshot budget. It does not imply
-  support for arbitrary custom actions, wires or a full Steam-server
-  browser.
-- If the Harmony target changes in a future game build, client vanilla world tools
-  remain enabled rather than applying a broad input patch. Do not use this build
-  on a different People Playground version without validating PATCHES.md.
+- This remains a multiplayer prototype. A successful compile, codec test or
+  single-process runtime check does not establish complete two-account Steam
+  synchronization. Test representative scenes on both accounts.
+- Every player needs the same complete v0.1.46 package, People Playground
+  1.27.17 build and installed content. There is no Workshop downloading,
+  mod-set/content-hash agreement or arbitrary asset transfer.
+- World discovery recognises local catalogue roots, including observed
+  pre-session spawns and ordinary copied objects. Map-loader fixtures are
+  excluded. Custom unnamed roots and arbitrary saved object graphs are not
+  reconstructed. A root damaged or restructured before discovery may differ
+  from its fresh prefab: it remains registered, but a layout mismatch is
+  reported and full state recovery may require a fresh host spawn.
+- Typed state is limited to **256 cached transform nodes per root**. It covers
+  poses, scale, supported renderer/collider state and explicitly encoded
+  physical/limb/skin values. It is not a general Unity component serializer.
+  Cached references preserve existing parts after host detachment; newly
+  created hierarchy nodes, arbitrary reparenting and full dynamic topology
+  are not reconstructed.
+- Native skin wound points (including bullet/stab marks and their age) now
+  transfer separately, up to 128 points per cached skin component. The
+  final wound extension passed codec tests; its extended engine test has not
+  yet been rerun. Complete custom wound textures, cut geometry, blood decals, projectile visuals,
+  explosions, particles, audio and arbitrary Workshop scripts are not fully
+  replicated. Selected health, heat/fire and skin acid/rot values do not
+  imply every injury effect is identical.
+- Host wire rendering is bounded to **128 lines**, with bounded points per
+  line. Guest wire creation and electrical/joint simulation are not supported.
+  Rendered lines are a view of host wiring, not independent guest mechanisms.
+- Guest context actions implemented through the host are Activate/Delete,
+  Freeze, No Collide, Weightless and Ignite. Copy/Save/Follow stay local.
+  Paste/Load, resize/layer/amalgamation and arbitrary dynamic mod actions remain
+  unsupported on guests. Context actions address registered roots, so a
+  compound root may be affected more broadly than one selected limb.
+- Guest Clear and Undo use the host's permissions and shared world/history.
+  Undo is not a separate per-player history. Pause, slow motion and the listed
+  environment fields are shared requests, not independent client settings.
+- The host's object cap bounds Connect-controlled requests/discovery, not
+  every vanilla host spawn path. Complete manifests support up to 1000 roots;
+  a larger manifest is omitted rather than sending an incomplete list that
+  could delete valid replicas. Large worlds update over multiple bounded
+  ticks; simultaneous pixel-identical views at every instant are not promised.
+- Camera, zoom, cursor appearance, local selection and menus intentionally
+  remain independent. Network delay affects when each player sees an update.
+- No public lobby browser or host migration is implemented. Bot intelligence
+  runs only on the host, with up to three bots and bounded actions.
+- The patches target the inspected 1.27.17 APIs. Revalidate targets and runtime
+  behavior after a game update. Missing patch targets are logged; do not claim
+  safe synchronization on a build whose required patches failed.

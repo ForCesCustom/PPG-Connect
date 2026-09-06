@@ -1,136 +1,59 @@
-# Patches — Connect BepInEx edition v0.1.45
+# Patches — Connect v0.1.46
 
-## ClientWorldInputPatch
+Targets are based on People Playground 1.27.17, Unity 2020.3.1f1.
+These are gameplay Harmony hooks, not changes to the game's executable or
+managed assemblies. Read the startup log for patch failures after an update.
 
-- Target type: `ToolControllerBehaviour`
-- Target method: `HandleTools`
-- Game tested: People Playground `1.27.17`, Unity `2020.3.1f1`
-- Patch type: Harmony prefix
-- Reason: a connected non-host must not simultaneously apply vanilla local world
-  interactions while it sends host-authoritative multiplayer drag requests.
-- Behaviour: returns `false` only while the plugin has a live started client
-  session. Before suppressing the unsafe local world action, it preserves the
-  semantic Activate/Delete key actions for that client's local selection by
-  sending bounded interaction requests to the host. Holding the configured
-  Activate binding renews a bounded host-side continuous-use lease. Host/single-player
-  behaviour is untouched. UI, camera navigation, pause, Escape and Steam
-  Overlay are not hooked.
-- Signature/version guard: Harmony locates the method by exact type and name at
-  plugin startup. If it cannot patch, `patchApplied` remains false and the plugin
-  does not claim client world-input suppression. It logs the failure.
+## Input and catalogue
 
-No patches target Steam, Steam callbacks, physics simulation, mod-loader
-security, the game loader, OS mouse input, or anti-cheat/security components.
+- `ToolControllerBehaviour.HandleTools`: gates guest world tools while a
+  session/map transition is active; preserves supported selected-object
+  Activate/Delete intents. The Connect panel also captures world-tool input.
+- `CatalogBehaviour.Spawn(SpawnableAsset, bool)`: guests request their own
+  catalogue key/position/flip from the host. The host observes its catalogue
+  boundary. Network instantiation scopes `CatalogBehaviour.SelectedItem`
+  so another player's selected Tab item cannot replace the requested asset.
+- `HandleContextMenu` preserves local selection of a registered root.
+  `HandleIndirectInteraction` routes direct/continuous Use through host leases.
 
-## ClientCatalogSpawnPatch
+## Context and shared controls
 
-- Target type: `CatalogBehaviour`
-- Target method: `Spawn(SpawnableAsset, bool)`
-- Game tested: People Playground `1.27.17`, Unity `2020.3.1f1`
-- Patch type: Harmony prefix
-- Reason: preserve every player's own normal Tab catalog while preventing a
-  connected client from creating an unauthoritative local object.
-- Behaviour: only in a live non-host Connect session, sends the selected stable
-  catalog key, flip flag and world cursor position to the host and skips the
-  local base-game spawn. Host and single-player catalog behavior is unchanged.
-- Signature/version guard: exact overload signature. Catalog routing is
-  intentionally independent from the `HandleTools` status: a failure of the
-  unrelated world-tool gate must never silently create an unsynchronised local
-  Tab item. If this exact catalog overload cannot be patched, vanilla behaviour
-  remains untouched and the Connect log records the failed patch installation.
+- `ContextMenuBehaviour.ActivateAction/DeleteAction` route through host
+  identity, range, rate and permission validation.
+- Other zero-argument context `*Action` methods are locally enumerated:
+  Freeze, NoCollide, Weightless and Ignite map to fixed network enums.
+  Copy, Save and Follow remain local. Unsupported world mutations are blocked.
+- `ContextMenuBehaviour.CreateDynamicButtons` is suppressed for active guests:
+  arbitrary mod callbacks are not a network interface.
+- `ClearButtonBehaviour.ClearEverything`, `ClearLivingBehaviour.Clear`,
+  `ClearDebrisBehaviour.Clear` and `UndoControllerBehaviour.Undo` become guest
+  requests against the shared host world/history.
+- `Global.TogglePaused/ToggleSlowmotion` and
+  `EnvironmentSettingsController.SetValue` route supported guest changes to
+  the host. Applying a received host state uses a scoped recursion guard.
 
-## ClientContextMenuSelectionPatch
+## Map lifecycle
 
-- Target type: `ToolControllerBehaviour`
-- Target method: `HandleContextMenu`
-- Game tested: People Playground `1.27.17`, Unity `2020.3.1f1`
-- Patch type: Harmony prefix
-- Reason: after the broad tool handler is gated for a client, right-click still
-  needs a local selection for the normal context menu.
-- Behaviour: on the context binding, selects only the physical object currently
-  under the local cursor when it has a registered Connect identity. It never
-  changes world physics or a remote player's selection.
-- Signature/version guard: exact target name; a failure leaves vanilla behavior
-  untouched because Connect will not declare its client world gate active.
+- `MapLoaderBehaviour.Load` postfix observes actual load completion. Host loads
+  advance the world epoch even if the map identity is unchanged.
+- `MapViewBehaviour.Select` and `SceneSwitchBehaviour.Switch` block independent
+  guest map changes while allowing Connect's scoped host-directed transition.
+- Guests need an actual load callback and instantiated requested map root after
+  a forced epoch reload; an old same-map scene is not sufficient evidence.
+  Client status includes the epoch, which the host validates.
 
-## ClientContextActivatePatch / ClientContextDeletePatch
+## Replica simulation and state
 
-- Target type: `ContextMenuBehaviour`
-- Target methods: `ActivateAction` and `DeleteAction`
-- Game tested: People Playground `1.27.17`, Unity `2020.3.1f1`
-- Patch type: Harmony prefixes
-- Reason: route the two bounded vanilla actions through the host rather than
-  mutating a non-host client's local simulation.
-- Behaviour: in a live non-host session, transforms selected registered roots
-  into reliable `InteractionRequest` messages, closes the local menu and skips
-  local execution. The host validates identity, cursor range, permissions and
-  rate before applying the equivalent vanilla action. All other context buttons
-  remain unsupported rather than being guessed or remotely invoked.
-- Signature/version guard: exact target method names; failure leaves the base
-  game action local and Connect reports no safe client authority gate.
+The replication module suppresses selected simulation callbacks only for
+components indexed as Connect guest replicas, so those replicas display host
+state instead of independently simulating the same actors. Consult
+`ReplicatedObjectState.cs` for the concrete supported component/method list.
+Host and ordinary local objects are outside that replica set.
 
-## ClientDirectActivationPatch
+World lifecycle also uses the game's spawn/remove events and a Connect identity
+destruction callback. Periodic discovery uses local catalogue keys and excludes
+map-loader fixtures. The protocol accepts typed data and fixed action enums;
+it does not accept arbitrary component types, method names or serialized saves.
 
-- Target type: `ToolControllerBehaviour`
-- Target method: `HandleIndirectInteraction`
-- Game tested: People Playground `1.27.17`, Unity `2020.3.1f1`
-- Patch type: Harmony prefix
-- Reason: route the standard direct `Use` binding through the host.
-- Behaviour: only during a live non-host session, consumes the direct-use input
-  and begins a renewable continuous-use lease for the registered object beneath
-  the local cursor. No method name or component target crosses the network.
-- Signature/version guard: exact target method name; if not applied, Connect
-  keeps its safe fallback and does not pretend to synchronize this action.
-
-## ConnectMapLoadPatch
-
-- Target type: `MapLoaderBehaviour`
-- Target method: `Load`
-- Game tested: People Playground `1.27.17`, Unity `2020.3.1f1`
-- Patch type: Harmony postfix
-- Reason: observe the game's own completed map-load path, so a Connect host can
-  relay the selected installed map identity and guests can follow it through
-  their own standard map loader.
-- Behaviour: only the active lobby host broadcasts a bounded `Map.UniqueIdentity`.
-  A non-host resolves that identity only from its local map catalogue and calls
-  the game loader; it never receives assets, files or paths. A client remains
-  blocked from network world actions until its requested map has loaded.
-- Signature/version guard: exact `MapLoaderBehaviour.Load` target. If it cannot
-  be patched, no automatic map-follow claim is made and the failure is logged.
-
-## ConnectClientMapViewPatch / ConnectClientSceneSwitchPatch
-
-- Target types: `MapViewBehaviour.Select` and `SceneSwitchBehaviour.Switch`
-- Game tested: People Playground `1.27.17`, Unity `2020.3.1f1`
-- Patch type: Harmony prefixes
-- Reason: the base-game map tile and Enter button can otherwise move a guest
-  into a different local sandbox scene. The host must remain the only map
-  authority.
-- Behaviour: while in a Connect lobby, a non-host's manual tile selection and
-  direct scene switch are blocked with a clear status message. The plugin marks
-  its own host-authorised scene-switch call for the exact duration of that call,
-  then lets People Playground perform its normal loading transition.
-- Signature/version guard: exact public method names. If either target changes,
-  that one guard is not applied; Connect logs the patch failure rather than
-  using a broad input or scene patch.
-
-## ClientUnsupportedContextActionPatch / ClientClear*Patch
-
-- Target types: `ContextMenuBehaviour`, `ClearButtonBehaviour`,
-  `ClearLivingBehaviour`, `ClearDebrisBehaviour`
-- Target methods: every zero-argument `ContextMenuBehaviour` method ending in
-  `Action` except `ActivateAction` / `DeleteAction`; plus `ClearEverything`
-  and each named `Clear` method.
-- Game tested: People Playground `1.27.17`, Unity `2020.3.1f1`
-- Patch type: Harmony prefixes
-- Reason: these native controls mutate only a guest's local scene. Paste may
-  instantiate objects; Clear and the other context actions otherwise create a
-  silent divergent world.
-- Behaviour: while connected as a non-host, Activate/Delete remain routed to
-  host validation while all other detected context actions and the three Clear
-  controls are stopped with a visible status. Host and single-player behaviour
-  remain untouched.
-- Signature/version guard: dynamic context targets are limited to the concrete
-  current `ContextMenuBehaviour` action methods and do not invoke a method name
-  supplied by a peer. If a future game changes these APIs, inspect the startup
-  Harmony log before claiming client-side authority gating.
+These hooks do not establish universal Workshop compatibility. See
+KNOWN_LIMITATIONS.md and verify actual runtime logs and two-account behavior.
