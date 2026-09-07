@@ -30,7 +30,10 @@ namespace PPGTogether.BepInEx
             ResetObjectReplication();
             worldEpoch++;
             if (worldEpoch == 0) worldEpoch = 1;
-            nextLifecycleScanAt = 0f;
+            // Unity destroys the outgoing scene's roots at the end of the
+            // frame. Do not re-register those roots into the new epoch while
+            // its map-loader completion callback is still unwinding.
+            nextLifecycleScanAt = Time.unscaledTime + 0.5f;
             nextManifestAt = 0f;
             lifecyclePeerRepairs.Clear();
         }
@@ -195,7 +198,6 @@ namespace PPGTogether.BepInEx
                 if (registry.Count >= MaximumNetworkObjects()) continue;
                 PPGTogetherIdentity identity = registry.RegisterHost(root, key);
                 if (identity == null) continue;
-                ReportLifecycleLayoutDifference(root, key);
                 if (!ReplicatedObjectState.Prime(identity))
                     Logger.LogWarning("[Connect][World] Existing root exceeds supported replicated-state limits: " + SafeName(key) + ".");
                 RecordLifecycleNetId(identity.NetId);
@@ -208,20 +210,44 @@ namespace PPGTogether.BepInEx
         {
             key = null;
             GameObject candidate = null;
+            bool hasAuthoredOrigin = false;
             for (Transform current = start; current != null; current = current.parent)
             {
                 PPGTogetherIdentity identity = current.GetComponent<PPGTogetherIdentity>();
                 PPGTogetherIdentity registered;
                 if (identity != null && registry.TryGet(identity.NetId, out registered) && registered == identity) return null;
                 if (current.GetComponent<MapLoaderBehaviour>() != null) return null;
+                // Vanilla Spawn writes this explicit asset reference before
+                // renaming the root to asset.name (which need not be the
+                // prefab's name). It also survives normal serialised copies.
+                SerialiseInstructions serialise = current.GetComponent<SerialiseInstructions>();
+                SpawnableAsset original = serialise == null ? null : serialise.OriginalSpawnableAsset;
+                if (original != null && original.Prefab != null)
+                {
+                    string originalKey = ResolveNetworkSpawnKey(original);
+                    SpawnableAsset resolved = string.IsNullOrEmpty(originalKey) ? null : ModAPI.FindSpawnable(originalKey);
+                    if (resolved != null && resolved.Prefab == original.Prefab &&
+                        resolved.Prefab.GetComponentInChildren<PhysicalBehaviour>(true) != null)
+                    {
+                        candidate = current.gameObject;
+                        key = originalKey;
+                        hasAuthoredOrigin = true;
+                        continue;
+                    }
+                }
                 ConnectSpawnOrigin origin = current.GetComponent<ConnectSpawnOrigin>();
                 if (origin != null && !string.IsNullOrEmpty(origin.SpawnKey))
                 {
                     SpawnableAsset asset = ModAPI.FindSpawnable(origin.SpawnKey);
-                    if (asset != null) { candidate = current.gameObject; key = origin.SpawnKey; }
+                    if (asset != null)
+                    {
+                        candidate = current.gameObject;
+                        key = origin.SpawnKey;
+                        hasAuthoredOrigin = true;
+                    }
                 }
                 string prefabKey;
-                if (lifecyclePrefabKeys.TryGetValue(NormaliseLifecycleCloneName(current.name), out prefabKey))
+                if (!hasAuthoredOrigin && lifecyclePrefabKeys.TryGetValue(NormaliseLifecycleCloneName(current.name), out prefabKey))
                 {
                     candidate = current.gameObject;
                     key = prefabKey;
@@ -265,25 +291,5 @@ namespace PPGTogether.BepInEx
             return name;
         }
 
-        private void ReportLifecycleLayoutDifference(GameObject root, string key)
-        {
-            SpawnableAsset asset = ModAPI.FindSpawnable(key);
-            if (asset == null || asset.Prefab == null || root == null) return;
-            Transform[] expected = asset.Prefab.GetComponentsInChildren<Transform>(true);
-            Transform[] actual = root.GetComponentsInChildren<Transform>(true);
-            bool matches = expected.Length == actual.Length;
-            if (matches)
-            {
-                for (int i = 1; i < expected.Length; i++)
-                {
-                    if (!string.Equals(expected[i].name, actual[i].name, StringComparison.Ordinal) ||
-                        expected[i].GetSiblingIndex() != actual[i].GetSiblingIndex()) { matches = false; break; }
-                }
-            }
-            if (!matches)
-                Logger.LogWarning("[Connect][World] Existing root " + SafeName(key) +
-                    " has an already modified hierarchy (local nodes=" + actual.Length + ", catalogue nodes=" + expected.Length +
-                    "). Registered its presence, but full state recovery requires a fresh catalogue spawn on the host.");
-        }
     }
 }

@@ -22,7 +22,7 @@ namespace PPGTogether.BepInEx
         internal const string PluginGuid = "local.ppgtogether.steam";
         // Keep the GUID stable so this is a seamless update for existing users.
         internal const string PluginName = "Connect";
-        internal const string PluginVersion = "0.1.46";
+        internal const string PluginVersion = "0.1.47";
         // Fallback only. The handshake and panel use Application.version so a
         // Steam-updated host cannot silently pretend to be an older build.
         internal const string ExpectedGameVersion = "1.27.17";
@@ -256,8 +256,6 @@ namespace PPGTogether.BepInEx
             transport = new SteamRelayTransport(this);
             SubscribeSteam();
             TryInstallPatch();
-            ModAPI.OnItemSpawned += OnItemSpawned;
-            ModAPI.OnItemRemoved += OnItemRemoved;
             LoadModIcon();
             RefreshInstallationHealth();
             Logger.LogInfo("[Connect][Core] BepInEx plugin loaded. Steam is never initialised or shut down by this plugin.");
@@ -326,6 +324,7 @@ namespace PPGTogether.BepInEx
         private void OnDestroy()
         {
             Cleanup(false);
+            if (Instance == this) { UnsubscribeSteam(); Instance = null; }
             PPGTogetherIdentity.DestroyedCallback = null;
             if (ui != null) ui.Dispose();
             if (modIcon != null) Destroy(modIcon);
@@ -2340,7 +2339,7 @@ namespace PPGTogether.BepInEx
             return current;
         }
 
-        private void OnItemSpawned(object sender, UserSpawnEventArgs args)
+        internal void OnItemSpawned(object sender, UserSpawnEventArgs args)
         {
             ObserveLifecycleSpawn(args);
             if (!IsHost || !sessionActive || args == null || args.Instance == null || args.SpawnableAsset == null) return;
@@ -2363,7 +2362,7 @@ namespace PPGTogether.BepInEx
             else Logger.LogWarning("[Connect][Spawn] Host catalog spawn could not be registered: " + SafeName(key) + ".");
         }
 
-        private void OnItemRemoved(object sender, UserSpawnEventArgs args)
+        internal void OnItemRemoved(object sender, UserSpawnEventArgs args)
         {
             if (args == null || args.Instance == null) return;
             RemoveBotSpawnRecord(args.Instance);
@@ -2611,10 +2610,11 @@ namespace PPGTogether.BepInEx
         // Called by the host-side CatalogBehaviour.Spawn Harmony boundary.
         // The original method raises ModAPI.OnItemSpawned before it returns,
         // whereas the callback object may already contain a transient sort key.
-        internal void BeginHostCatalogSpawn(SpawnableAsset asset)
+        internal bool BeginHostCatalogSpawn(SpawnableAsset asset)
         {
-            if (!IsHost || !sessionActive) return;
+            if (!IsHost || !sessionActive) return false;
             hostCatalogSpawnKeys.Push(ResolveNetworkSpawnKey(asset));
+            return true;
         }
 
         internal void EndHostCatalogSpawn()
@@ -2980,13 +2980,6 @@ namespace PPGTogether.BepInEx
             if (transport != null) transport.Close();
             if (leaveSteamLobby && lobby.HasValue) lobby.Value.Leave();
             lobby = null; nonce = 0;
-            if (Instance == this && !leaveSteamLobby)
-            {
-                UnsubscribeSteam();
-                ModAPI.OnItemSpawned -= OnItemSpawned;
-                ModAPI.OnItemRemoved -= OnItemRemoved;
-                Instance = null;
-            }
         }
 
         private void WriteLobbyMetadata()

@@ -2,7 +2,7 @@
   "Name": "Connect",
   "Author": "Mercury",
   "Description": "Native People Playground menu companion for Connect. The complete BepInEx Connect package is required for multiplayer.",
-  "ModVersion": "0.1.46",
+  "ModVersion": "0.1.47",
   "GameVersion": "1.27.17",
   "ThumbnailPath": "thumbnail.png",
   "EntryPoint": "ConnectWorkshopCompanion.Mod",

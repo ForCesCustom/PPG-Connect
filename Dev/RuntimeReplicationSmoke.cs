@@ -63,10 +63,12 @@ public sealed class RuntimeReplicationSmoke : BaseUnityPlugin
         Freeze(host);
         WorldRegistry hostRegistry = new WorldRegistry(); WorldRegistry replicaRegistry = new WorldRegistry();
         PPGTogetherIdentity hi = hostRegistry.RegisterHost(host, name);
-        Transform[] hostNodes = host.GetComponentsInChildren<Transform>(true);
+        Transform[] hostNodes;
+        Check(ReplicatedObjectState.TryGetAuthoredTransforms(host.transform, asset.Prefab.transform, out hostNodes), "host authored hierarchy mapping");
         Check(ReplicatedObjectState.Prime(hi), "host hierarchy prime");
         yield return null;
         Freeze(host);
+        IsolateFixtureSimulation(host);
         host.transform.position = origin + new Vector3(1, 2, 0);
         host.transform.localScale = new Vector3(-1.2f, 1.3f, 1);
         LimbBehaviour[] limbs = host.GetComponentsInChildren<LimbBehaviour>(true);
@@ -99,16 +101,18 @@ public sealed class RuntimeReplicationSmoke : BaseUnityPlugin
         List<byte[]> packets = ReplicatedObjectState.Capture(hi);
         List<byte[]> woundPackets = ReplicatedWoundState.Capture(hi);
         Check(packets.Count > 0, "capture packets");
-        // A new client starts from the original prefab; it must Prime before
-        // Start adds runtime visuals, matching production spawn integration.
+        // A new client starts from the original prefab; runtime visuals are not
+        // protocol slots even when native Awake/Start added some before Prime.
         ReplicatedObjectState.Forget(hi.NetId);
         GameObject replica = Instantiate(asset.Prefab, origin + new Vector3(-4, 0, 0), Quaternion.identity) as GameObject;
         owned.Add(replica); Check(replica != null, "replica fixture instantiation"); Freeze(replica);
         PPGTogetherIdentity ri = replicaRegistry.RegisterReplica(replica, hi.NetId, name);
-        Transform[] replicaNodes = replica.GetComponentsInChildren<Transform>(true);
+        Transform[] replicaNodes;
+        Check(ReplicatedObjectState.TryGetAuthoredTransforms(replica.transform, asset.Prefab.transform, out replicaNodes), "replica authored hierarchy mapping");
         Check(hostNodes.Length == replicaNodes.Length, "initial clone hierarchy parity");
         Check(ReplicatedObjectState.Prime(ri), "replica apply hierarchy prime");
         yield return null;
+        IsolateFixtureSimulation(replica);
         ObjectStateChunk first = null;
         foreach (byte[] packet in packets)
         {
@@ -163,6 +167,75 @@ public sealed class RuntimeReplicationSmoke : BaseUnityPlugin
             Check(replica != null && replica.activeSelf, "missing child preserves root");
         }
         Logger.LogInfo("[ConnectSmoke] " + name + ": initial nodes=" + hostNodes.Length + ", chunks=" + packets.Count + ", physicals=" + physicals.Length + ", limbs=" + limbs.Length);
+        Cleanup();
+        yield return null;
+        IEnumerator delayed = TestDelayedPrime(asset, name);
+        while (delayed.MoveNext()) yield return delayed.Current;
+    }
+
+    private IEnumerator TestDelayedPrime(SpawnableAsset asset, string name)
+    {
+        Vector3 origin = FindEmptyTestPosition();
+        GameObject host = Instantiate(asset.Prefab, origin, Quaternion.identity) as GameObject;
+        owned.Add(host); Check(host != null, "delayed host instantiation"); Freeze(host);
+        // Aged native roots are what the production lifecycle scan encounters;
+        // letting native Start run before registration reproduces that boundary.
+        yield return null;
+        yield return null;
+        IsolateFixtureSimulation(host);
+        for (int i = 0; i < 300; i++)
+        {
+            GameObject effect = new GameObject("ConnectSmokeTransientVFX" + i);
+            effect.transform.SetParent(host.transform, false);
+            effect.transform.SetAsFirstSibling();
+        }
+        int rawCount = host.GetComponentsInChildren<Transform>(true).Length;
+        Check(rawCount > ObjectStateCodec.MaximumNodes, "runtime VFX exceeds raw node limit");
+        WorldRegistry hostRegistry = new WorldRegistry(), replicaRegistry = new WorldRegistry();
+        PPGTogetherIdentity hi = hostRegistry.RegisterHost(host, name);
+        Transform[] hostNodes;
+        Check(ReplicatedObjectState.TryGetAuthoredTransforms(host.transform, asset.Prefab.transform, out hostNodes), "aged host authored mapping");
+        int expectedCount = asset.Prefab.GetComponentsInChildren<Transform>(true).Length;
+        Check(hostNodes.Length == expectedCount, "all and only prefab authored slots retained");
+        foreach (Transform node in hostNodes) Check(node != null, "runtime-first siblings do not hide authored transform");
+        Check(ReplicatedObjectState.Prime(hi), "late Prime ignores more than 256 runtime effects");
+        host.transform.position = origin + new Vector3(2, 1, 0);
+        foreach (PhysicalBehaviour physical in host.GetComponentsInChildren<PhysicalBehaviour>(true)) physical.Temperature = 177;
+        List<byte[]> packets = ReplicatedObjectState.Capture(hi);
+        uint hostHash; int hostCount;
+        Check(ReplicatedObjectState.TryGetCachedLayout(hi, out hostHash, out hostCount), "aged host canonical layout cached");
+        ReplicatedObjectState.Forget(hi.NetId);
+        GameObject replica = Instantiate(asset.Prefab, origin + new Vector3(-4, 0, 0), Quaternion.identity) as GameObject;
+        owned.Add(replica); Check(replica != null, "fresh replica instantiation"); Freeze(replica);
+        PPGTogetherIdentity ri = replicaRegistry.RegisterReplica(replica, hi.NetId, name);
+        Check(ReplicatedObjectState.Prime(ri), "fresh replica Prime");
+        uint replicaHash; int replicaCount;
+        Check(ReplicatedObjectState.TryGetCachedLayout(ri, out replicaHash, out replicaCount), "fresh replica canonical layout cached");
+        Check(hostHash == replicaHash && hostCount == replicaCount && hostCount == expectedCount, "aged host and fresh replica fingerprints match");
+        Transform[] replicaNodes;
+        Check(ReplicatedObjectState.TryGetAuthoredTransforms(replica.transform, asset.Prefab.transform, out replicaNodes), "fresh replica authored mapping");
+        Check(packets.Count > 0, "aged host state packets captured");
+        foreach (byte[] packet in packets)
+        {
+            ObjectStateChunk chunk;
+            Check(ObjectStateCodec.TryDecode(packet, out chunk), "aged host packet decode");
+            Check(ReplicatedObjectState.Apply(ri, chunk), "aged host snapshot accepted by fresh replica");
+            AssertChunk(replicaNodes, chunk);
+        }
+        Logger.LogInfo("[ConnectSmoke] Delayed-Prime regression PASSED " + name + ": raw nodes=" + rawCount + ", authored nodes=" + expectedCount + ", hash=" + hostHash);
+    }
+
+    private static void IsolateFixtureSimulation(GameObject root)
+    {
+        // These are harness-owned capture/apply fixtures, not network peers.
+        // After native Start has established the real hierarchy, deliberately
+        // destroying a limb would leave Person's native simulation loops with
+        // references to that deleted Rigidbody/Joint. Disable only the exact
+        // fixture scripts before destructive mutations; do not patch the game
+        // globally or suppress exceptions from production spawn/lobby tests.
+        foreach (PersonBehaviour person in root.GetComponentsInChildren<PersonBehaviour>(true)) person.enabled = false;
+        foreach (LimbBehaviour limb in root.GetComponentsInChildren<LimbBehaviour>(true)) limb.enabled = false;
+        foreach (PhysicalBehaviour physical in root.GetComponentsInChildren<PhysicalBehaviour>(true)) physical.enabled = false;
     }
 
     private void AssertChunk(Transform[] nodes, ObjectStateChunk chunk)
@@ -173,10 +246,10 @@ public sealed class RuntimeReplicationSmoke : BaseUnityPlugin
             if ((state.Flags & 1) == 0) { Check(!t.gameObject.activeSelf, "absent part inactive"); continue; }
             Check(Vector3.Distance(t.position, new Vector3(state.X, state.Y, state.Z)) < .01f, "world pose parity");
             Check(Vector3.Distance(t.localScale, new Vector3(state.ScaleX, state.ScaleY, state.ScaleZ)) < .001f, "scale parity");
-            Rigidbody2D body = t.GetComponent<Rigidbody2D>(); if (body != null) Check(body.bodyType == RigidbodyType2D.Kinematic, "replica simulation suppressed");
-            PhysicalBehaviour physical = t.GetComponent<PhysicalBehaviour>(); if (physical != null) Check(Mathf.Abs(physical.Temperature - state.Temperature) < .01f && Mathf.Abs(physical.BurnProgress - state.Burn) < .001f && physical.IsWeightless == ((state.PhysicalFlags & 1) != 0), "physical state parity");
-            LimbBehaviour limb = t.GetComponent<LimbBehaviour>(); if (limb != null) Check(Mathf.Abs(limb.Health - state.Health) < .001f && limb.Broken == ((state.LimbFlags & 1) != 0), "limb state parity");
-            SpriteRenderer sprite = t.GetComponent<SpriteRenderer>(); if (sprite != null) Check(Mathf.Abs(sprite.color.r - state.Red) < .001f && sprite.flipX == ((state.SpriteFlags & 2) != 0), "sprite state parity");
+            Rigidbody2D body = t.GetComponent<Rigidbody2D>(); if ((state.Flags & 4) != 0) Check(body != null && body.bodyType == RigidbodyType2D.Kinematic, "replica simulation suppressed");
+            PhysicalBehaviour physical = t.GetComponent<PhysicalBehaviour>(); if ((state.Flags & 16) != 0) Check(physical != null && Mathf.Abs(physical.Temperature - state.Temperature) < .01f && Mathf.Abs(physical.BurnProgress - state.Burn) < .001f && physical.IsWeightless == ((state.PhysicalFlags & 1) != 0), "physical state parity");
+            LimbBehaviour limb = t.GetComponent<LimbBehaviour>(); if ((state.Flags & 32) != 0) Check(limb != null && Mathf.Abs(limb.Health - state.Health) < .001f && limb.Broken == ((state.LimbFlags & 1) != 0), "limb state parity");
+            SpriteRenderer sprite = t.GetComponent<SpriteRenderer>(); if ((state.Flags & 8) != 0) Check(sprite != null && Mathf.Abs(sprite.color.r - state.Red) < .001f && sprite.flipX == ((state.SpriteFlags & 2) != 0), "sprite state parity");
         }
     }
 
@@ -202,6 +275,6 @@ public sealed class RuntimeReplicationSmoke : BaseUnityPlugin
 
     private void FixedUpdate() { if (armed) foreach (GameObject root in owned) if (root != null) Freeze(root); }
     private void Check(bool value, string label) { checks++; if (!value) throw new InvalidOperationException(label); }
-    private void Cleanup() { ReplicatedObjectState.Clear(); foreach (GameObject obj in owned) if (obj != null) Destroy(obj); owned.Clear(); }
+    private void Cleanup() { ReplicatedObjectState.Clear(); foreach (GameObject obj in owned) if (obj != null) { IsolateFixtureSimulation(obj); Destroy(obj); } owned.Clear(); }
     private void OnDestroy() { if (armed) Cleanup(); }
 }

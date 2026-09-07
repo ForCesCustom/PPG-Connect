@@ -1,4 +1,4 @@
-# Patches — Connect v0.1.46
+# Patches — Connect v0.1.47
 
 Targets are based on People Playground 1.27.17, Unity 2020.3.1f1.
 These are gameplay Harmony hooks, not changes to the game's executable or
@@ -13,6 +13,11 @@ managed assemblies. Read the startup log for patch failures after an update.
   catalogue key/position/flip from the host. The host observes its catalogue
   boundary. Network instantiation scopes `CatalogBehaviour.SelectedItem`
   so another player's selected Tab item cannot replace the requested asset.
+  An exception-safe finalizer releases the host catalogue context only when
+  that invocation actually pushed one.
+- `ModAPI.InvokeItemSpawned/InvokeItemRemoved` prefixes observe native object
+  events directly. `ModificationManager.InvokeMain` calls `ModAPI.ClearEvents`
+  while loading the catalogue, so normal event subscriptions are not durable.
 - `HandleContextMenu` preserves local selection of a registered root.
   `HandleIndirectInteraction` routes direct/continuous Use through host leases.
 
@@ -50,9 +55,13 @@ state instead of independently simulating the same actors. Consult
 `ReplicatedObjectState.cs` for the concrete supported component/method list.
 Host and ordinary local objects are outside that replica set.
 
-World lifecycle also uses the game's spawn/remove events and a Connect identity
+World lifecycle uses durable hooks on the game's spawn/remove invocations and a Connect identity
 destruction callback. Periodic discovery uses local catalogue keys and excludes
-map-loader fixtures. The protocol accepts typed data and fixed action enums;
+map-loader fixtures. Validated SerialiseInstructions origin markers take
+precedence over root-name heuristics. A short post-load delay avoids recovering
+objects awaiting destruction from the previous map. State node layouts come
+from the local catalogue prefab, not runtime effects or outline children.
+The protocol accepts typed data and fixed action enums;
 it does not accept arbitrary component types, method names or serialized saves.
 
 These hooks do not establish universal Workshop compatibility. See

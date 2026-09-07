@@ -8,6 +8,20 @@ internal static class ObjectStateSmokeTests
     private static bool Decodes(byte[] bytes) { ObjectStateChunk parsed; return ObjectStateCodec.TryDecode(bytes, out parsed); }
     private static void Main()
     {
+        string[] nativeRuntime = { "Outline", "Head", "BloodParticle(Clone)", "Body", "Fire" };
+        Check(AuthoredNodePaths.MatchChild("Head", 0, 1, nativeRuntime) == 1, "runtime effect before authored child ignored");
+        Check(AuthoredNodePaths.MatchChild("Body", 0, 1, nativeRuntime) == 3, "runtime effect between authored children ignored");
+        Check(AuthoredNodePaths.MatchChild("Missing", 0, 1, nativeRuntime) == -1, "destroyed authored child leaves tombstone");
+        Check(AuthoredNodePaths.MatchChild("Limb", 1, 2, new[] { "Limb", "Outline", "Limb" }) == 2, "duplicate authored names retain ordinal");
+        Check(AuthoredNodePaths.MatchChild("Limb", 0, 2, new[] { "Limb" }) == -1, "missing duplicate does not steal another limb identity");
+        Check(AuthoredNodePaths.MatchChild("Head", 0, 1, new[] { "Head", "Head" }) == -1, "ambiguous runtime duplicate fails closed");
+        Check(AuthoredNodePaths.MatchChild("head", 0, 1, nativeRuntime) == -1, "authored name matching is case sensitive");
+        Check(AuthoredNodePaths.Segment("Limb", 0) != AuthoredNodePaths.Segment("Limb", 1), "duplicate path slots distinct");
+        Check(AuthoredNodePaths.Segment("A/1:B", 0) != AuthoredNodePaths.Segment("A", 0) + AuthoredNodePaths.Segment("B", 0), "path segment escaping is unambiguous");
+        string[] largeRuntime = new string[400];
+        for (int i = 0; i < largeRuntime.Length; i++) largeRuntime[i] = "TransientEffect" + i;
+        largeRuntime[321] = "Head";
+        Check(AuthoredNodePaths.MatchChild("Head", 0, 1, largeRuntime) == 321, "effects beyond packet node limit do not affect authored matching");
         ObjectStateNode full = new ObjectStateNode { Flags = 127, X = 2, Y = -15, Angle = -90, ScaleX = -2, ScaleY = 3, Temperature = 200, Charge = 17, Burn = .4f, BurnIntensity = 2, Fire = true, Health = -8, Numbness = .2f, BodyTemperature = 37, LimbFlags = 5, Rot = .7f, Acid = .3f, SpriteFlags = 7, Red = .1f, Blue = .5f, Alpha = .8f };
         ObjectStateChunk source = new ObjectStateChunk { NetId = 7, Layout = 0xDEADBEEF, Total = 3, Offset = 1, Nodes = new[] { full, new ObjectStateNode() } };
         byte[] good = ObjectStateCodec.Encode(source); ObjectStateChunk parsed;

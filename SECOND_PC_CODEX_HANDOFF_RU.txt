@@ -12,10 +12,10 @@ GitHub: https://github.com/ForCesCustom/PPG-Connect
 Ветка: main
 Последний подтверждённый commit: после `git pull origin main` сверь `HEAD` с
 `origin/main`; актуальный release ниже.
-Актуальный мод: Connect v0.1.46
-Протокол: 8 — оба игрока должны обновиться.
+Актуальный мод: Connect v0.1.47
+Протокол: 9 — оба игрока должны обновиться.
 Актуальный установочный архив:
-https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.46.zip
+https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.47.zip
 
 Первое действие на новом ПК
 ---------------------------
@@ -30,7 +30,7 @@ https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.46.zi
 
 3. Проверь git status. Не удаляй и не добавляй в commit чужие локальные файлы.
 4. Установи тот же готовый Connect пакет: полностью распакуй
-Releases/Connect-v0.1.46.zip в корень игры — туда, где лежит
+Releases/Connect-v0.1.47.zip в корень игры — туда, где лежит
    People Playground.exe. Разреши объединить BepInEx. Не заменяй exe игры,
    игровые DLL, steam_api DLL и чужие BepInEx-плагины.
 5. Проверь, что итоговый файл существует:
@@ -84,6 +84,9 @@ MSBuild Dev\PPGTogether.BepInEx.csproj /t:Rebuild /p:Configuration=Debug /p:Game
   rounded icon, Workshop Companion и документация.
 - Workshop Companion показывает понятную плашку и ссылку на GitHub, если
   runtime отсутствует или его версия не совпадает.
+- В v0.1.47 устранена потеря событий спавна хоста при ModAPI.ClearEvents;
+  схема частей берётся из каталога, а не из добавленных эффектов.
+  Проверки и ограничения: SYNC_TEST_REPORT_v0.1.47.md.
 - В v0.1.46 панель по запросу пользователя обновлена: адаптивный размер,
   прокрутка, карточки игроков, статусы и настройки. Поведение и число ботов
   остаются отдельной логикой.
@@ -107,14 +110,14 @@ Source/WorldState.cs
 README.md и README.txt
 KNOWN_LIMITATIONS.md
 BOT_INTELLIGENCE.md
-Releases/Connect-v0.1.46.zip
+Releases/Connect-v0.1.47.zip
 
 Честность тестирования
 ----------------------
 
 Для текущей версии самостоятельно запиши результаты сборки, smoke tests,
 проверки ZIP и SHA-256 установленной DLL. Полный двухаккаунтный Steam runtime-
-тест v0.1.46 нельзя считать пройденным по одной сборке или локальному тесту.
+тест v0.1.47 нельзя считать пройденным по одной сборке или локальному тесту.
 
 Новая репликация ограничена 256 узлами на root. Сохраняются исходные ссылки
 на части, но не передаётся произвольный динамический граф объектов. Передаются
@@ -145,7 +148,7 @@ ConnectMenu.cs. Сверяй фактический список Source/ и не
 --------------------------
 
 Итоговый Git repository, установленный Connect и release ZIP должны совпадать
-с GitHub main v0.1.46. После проверки агент должен отчитаться о найденном
+с GitHub main v0.1.47. После проверки агент должен отчитаться о найденном
 пути игры, build/test status, SHA-256 DLL, пути установки и любых отличиях.
 
 

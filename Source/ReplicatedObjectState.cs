@@ -101,6 +101,31 @@ namespace PPGTogether.BepInEx
         }
     }
 
+    // Pure helpers are shared by the Unity mapper and executable regression
+    // tests; unrelated runtime siblings never participate in authored ordinals.
+    internal static class AuthoredNodePaths
+    {
+        internal static string Segment(string name, int ordinal)
+        {
+            name = name ?? string.Empty;
+            return "/" + name.Length + ":" + name + ":" + ordinal;
+        }
+
+        internal static int MatchChild(string name, int ordinal, int authoredCount, string[] actualNames)
+        {
+            int count = 0, match = -1;
+            for (int i = 0; i < actualNames.Length; i++)
+                if (string.Equals(actualNames[i], name, StringComparison.Ordinal))
+                {
+                    if (count == ordinal) match = i;
+                    count++;
+                }
+            // If a same-name sibling was removed, assigning the next sibling
+            // to its old slot corrupts identities. Fail closed for that group.
+            return count == authoredCount ? match : -1;
+        }
+    }
+
     internal static class ReplicatedObjectState
     {
         private sealed class Node
@@ -125,41 +150,120 @@ namespace PPGTogether.BepInEx
         private static readonly HashSet<int> replicaObjects = new HashSet<int>();
         private static readonly Dictionary<int, PPGTogetherIdentity> nodeOwners = new Dictionary<int, PPGTogetherIdentity>();
 
-        // Call immediately after registration on both sides, before the first
-        // gameplay tick. Retaining transform references preserves the identity of
-        // detached limbs and avoids assigning their old indexes to another child.
+        // Native spawning and lifecycle recovery do not run at the same point in
+        // Awake/Start on every peer. Only the local catalogue prefab defines wire
+        // slots; runtime outlines, fire particles and gore must never add slots.
+        // Retain the mapped references so later detached limbs keep their slots.
         internal static bool Prime(PPGTogetherIdentity identity)
         {
             if (identity == null || identity.NetId == 0) return false;
             Layout existing;
-            if (layouts.TryGetValue(identity.NetId, out existing)) return existing.Identity == identity;
-            Transform[] transforms = identity.GetComponentsInChildren<Transform>(true);
-            if (transforms.Length == 0 || transforms.Length > ObjectStateCodec.MaximumNodes) return false;
+            if (layouts.TryGetValue(identity.NetId, out existing))
+            {
+                if (existing.Identity == identity) return true;
+                if (existing.Identity != null) return false;
+                Forget(identity.NetId);
+            }
+            SpawnableAsset asset = string.IsNullOrEmpty(identity.SpawnKey) ? null : ModAPI.FindSpawnable(identity.SpawnKey);
+            if (asset == null || asset.Prefab == null) return false;
+            Transform[] authored = asset.Prefab.GetComponentsInChildren<Transform>(true), transforms;
+            if (!TryGetAuthoredTransforms(identity.transform, asset.Prefab.transform, out transforms)) return false;
             Layout layout = new Layout(); layout.Identity = identity; layout.Hash = 2166136261; layout.Nodes = new Node[transforms.Length];
             for (int i = 0; i < transforms.Length; i++)
             {
                 Transform t = transforms[i]; Node n = new Node(); layout.Nodes[i] = n;
-                n.Transform = t; n.Body = t.GetComponent<Rigidbody2D>(); n.Sprite = t.GetComponent<SpriteRenderer>(); n.Physical = t.GetComponent<PhysicalBehaviour>(); n.Limb = t.GetComponent<LimbBehaviour>(); n.Skin = t.GetComponent<SkinMaterialHandler>();
-                n.Colliders = t.GetComponents<Collider2D>(); n.InstanceId = t.gameObject.GetInstanceID();
-                if (n.Colliders.Length > 32) return false;
-                n.Schema = (byte)((n.Body != null ? 4 : 0) | (n.Sprite != null ? 8 : 0) | (n.Physical != null ? 16 : 0) | (n.Limb != null ? 32 : 0) | (n.Skin != null ? 64 : 0));
-                // Cache a fingerprint of the initial hierarchy. No remote path
-                // is resolved against a later, possibly reparented hierarchy.
-                string path = InitialPath(identity.transform, t);
+                Transform template = authored[i];
+                n.Transform = t;
+                // The schema is authored as well: native effects may attach
+                // components to an existing transform during Awake/Start.
+                n.Schema = SchemaOf(template);
+                if (t != null)
+                {
+                    n.Body = (n.Schema & 4) != 0 ? t.GetComponent<Rigidbody2D>() : null;
+                    n.Sprite = (n.Schema & 8) != 0 ? t.GetComponent<SpriteRenderer>() : null;
+                    n.Physical = (n.Schema & 16) != 0 ? t.GetComponent<PhysicalBehaviour>() : null;
+                    n.Limb = (n.Schema & 32) != 0 ? t.GetComponent<LimbBehaviour>() : null;
+                    n.Skin = (n.Schema & 64) != 0 ? t.GetComponent<SkinMaterialHandler>() : null;
+                    n.InstanceId = t.gameObject.GetInstanceID();
+                }
+                Collider2D[] authoredColliders = template.GetComponents<Collider2D>();
+                if (authoredColliders.Length > 32) return false;
+                n.Colliders = MapAuthoredColliders(t, authoredColliders);
+                // No remote path is ever resolved in the live hierarchy. Its
+                // canonical fingerprint also ignores added sibling indices.
+                string path = InitialPath(asset.Prefab.transform, template);
                 for (int j = 0; j < path.Length; j++) layout.Hash = unchecked((layout.Hash ^ path[j]) * 16777619);
                 layout.Hash = unchecked((layout.Hash ^ n.Schema) * 16777619);
                 layout.Hash = unchecked((layout.Hash ^ (uint)n.Colliders.Length) * 16777619);
             }
-            if (identity.ReplicatedSpawn) foreach (Node node in layout.Nodes) replicaObjects.Add(node.InstanceId);
-            foreach (Node node in layout.Nodes) nodeOwners[node.InstanceId] = identity;
+            if (identity.ReplicatedSpawn) foreach (Node node in layout.Nodes) if (node.Transform != null) replicaObjects.Add(node.InstanceId);
+            foreach (Node node in layout.Nodes) if (node.Transform != null) nodeOwners[node.InstanceId] = identity;
             layouts.Add(identity.NetId, layout); return true;
         }
 
         private static string InitialPath(Transform root, Transform child)
         {
             string path = string.Empty;
-            while (child != root && child != null) { path = "/" + child.GetSiblingIndex() + ":" + child.name + path; child = child.parent; }
+            while (child != root && child != null) { path = AuthoredNodePaths.Segment(child.name, SameNameOrdinal(child)) + path; child = child.parent; }
             return path.Length == 0 ? "/" : path;
+        }
+
+        private static int SameNameOrdinal(Transform child)
+        {
+            if (child.parent == null) return 0;
+            int ordinal = 0;
+            for (int i = 0; i < child.GetSiblingIndex(); i++)
+                if (string.Equals(child.parent.GetChild(i).name, child.name, StringComparison.Ordinal)) ordinal++;
+            return ordinal;
+        }
+
+        // Exposed internally for an in-engine regression fixture. Mapping is
+        // entirely local and includes inactive and non-physical authored nodes.
+        // An absent authored child remains null at its original slot rather than
+        // shifting later nodes onto a different limb. This recovers old roots
+        // safely; a limb detached before registration cannot be rediscovered.
+        internal static bool TryGetAuthoredTransforms(Transform instance, Transform prefab, out Transform[] mapped)
+        {
+            mapped = null;
+            if (instance == null || prefab == null) return false;
+            Transform[] authored = prefab.GetComponentsInChildren<Transform>(true);
+            if (authored.Length == 0 || authored.Length > ObjectStateCodec.MaximumNodes) return false;
+            mapped = new Transform[authored.Length]; mapped[0] = instance;
+            Dictionary<Transform, Transform> parents = new Dictionary<Transform, Transform>();
+            parents[prefab] = instance;
+            for (int i = 1; i < authored.Length; i++)
+            {
+                Transform source = authored[i], parent;
+                if (!parents.TryGetValue(source.parent, out parent) || parent == null) { parents[source] = null; continue; }
+                int authoredCount = 0;
+                for (int j = 0; j < source.parent.childCount; j++)
+                    if (string.Equals(source.parent.GetChild(j).name, source.name, StringComparison.Ordinal)) authoredCount++;
+                string[] actualNames = new string[parent.childCount];
+                for (int j = 0; j < actualNames.Length; j++) actualNames[j] = parent.GetChild(j).name;
+                int match = AuthoredNodePaths.MatchChild(source.name, SameNameOrdinal(source), authoredCount, actualNames);
+                if (match >= 0) mapped[i] = parent.GetChild(match);
+                parents[source] = mapped[i];
+            }
+            return true;
+        }
+
+        private static byte SchemaOf(Transform t)
+        {
+            return (byte)((t.GetComponent<Rigidbody2D>() != null ? 4 : 0) | (t.GetComponent<SpriteRenderer>() != null ? 8 : 0) |
+                (t.GetComponent<PhysicalBehaviour>() != null ? 16 : 0) | (t.GetComponent<LimbBehaviour>() != null ? 32 : 0) | (t.GetComponent<SkinMaterialHandler>() != null ? 64 : 0));
+        }
+
+        private static Collider2D[] MapAuthoredColliders(Transform instance, Collider2D[] authored)
+        {
+            Collider2D[] result = new Collider2D[authored.Length];
+            if (instance == null) return result;
+            Collider2D[] actual = instance.GetComponents<Collider2D>();
+            bool[] used = new bool[actual.Length];
+            for (int i = 0; i < authored.Length; i++)
+                for (int j = 0; j < actual.Length; j++)
+                    if (!used[j] && actual[j] != null && authored[i].GetType() == actual[j].GetType())
+                    { result[i] = actual[j]; used[j] = true; break; }
+            return result;
         }
 
         internal static bool IsReplicaComponent(Component component)

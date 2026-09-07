@@ -1,9 +1,15 @@
-# Connect relay protocol v8
+# Connect relay protocol v9
 
-Version 0.1.46 uses the game-supplied Facepunch SteamNetworkingSockets context.
+Version 0.1.47 uses the game-supplied Facepunch SteamNetworkingSockets context.
 All peers must agree on protocol, Connect version and game version. Payloads
 are typed bounded records; files, CLR object graphs, method names and remote
 save deserialization are absent.
+
+Protocol 9 changes layout fingerprint semantics: node paths and component
+schemas are taken from the local catalogue prefab, with stable same-name
+sibling ordinals. Runtime effects/outlines do not create network node slots.
+Missing authored parts retain their slots. Do not mix v8/v9 peers even though
+individual object-state record fields remain unchanged.
 
 ## Envelope and authority
 
@@ -12,7 +18,7 @@ All fields are little-endian. The fixed header is 30 bytes.
 | Offset | Bytes | Field |
 |---:|---:|---|
 | 0 | 4 | Magic 0x54475050 |
-| 4 | 2 | Protocol version 8 |
+| 4 | 2 | Protocol version 9 |
 | 6 | 1 | Message type |
 | 7 | 1 | Logical channel |
 | 8 | 8 | Session nonce |

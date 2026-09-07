@@ -95,7 +95,20 @@ public sealed class SpawnPathRuntimeSmoke : BaseUnityPlugin
             Check(Vector2.Distance(new Vector2(created.transform.position.x, created.transform.position.y), position) < .01f, "requested world position");
             Check(Mathf.Abs(Mathf.DeltaAngle(created.transform.eulerAngles.z, rotation)) < .01f, "requested rotation");
             float expectedX = requested.Prefab.transform.localScale.x * (flipped ? -1f : 1f);
-            Check(Mathf.Abs(created.transform.localScale.x - expectedX) < .001f, "requested horizontal flip");
+            Vector3 actualScale = created.transform.localScale;
+            Check(!float.IsNaN(actualScale.x) && !float.IsInfinity(actualScale.x) && Mathf.Abs(actualScale.x) > .001f && Mathf.Sign(actualScale.x) == Mathf.Sign(expectedX), "requested horizontal flip direction");
+            // PersonBehaviour.Awake deliberately randomizes Human scale. Its
+            // direction must follow the request, but its magnitude must not be
+            // compared to the uninstantiated prefab's scale. Native IL uses
+            // Random.Range(1.59f, 2f) / 2f / .82397f for RandomisedSize persons.
+            PersonBehaviour prefabPerson = requested.Prefab.GetComponent<PersonBehaviour>();
+            if (prefabPerson != null && prefabPerson.RandomisedSize)
+            {
+                float magnitude = Mathf.Abs(actualScale.x);
+                Check(magnitude >= 1.59f / 2f / .82397f - .001f && magnitude <= 1f / .82397f + .001f, "native randomized Human size remains in range");
+                Check(Mathf.Abs(magnitude - Mathf.Abs(actualScale.y)) < .001f, "horizontal flip preserves randomized uniform size");
+            }
+            else Check(Mathf.Abs(actualScale.x - expectedX) < .001f, "nonrandom prefab horizontal size preserved");
             int spriteChecks = 0;
             foreach (SpriteRenderer reference in requested.Prefab.GetComponentsInChildren<SpriteRenderer>(true))
             {

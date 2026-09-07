@@ -5,6 +5,23 @@ using HarmonyLib;
 
 namespace PPGTogether.BepInEx
 {
+    // Catalog.Populate -> ModificationManager.InvokeMain -> ModAPI.ClearEvents
+    // erases ordinary event subscribers on every map/mod initialization.
+    // Hook the stable invoker instead; other mods keep their native events.
+    [HarmonyPatch(typeof(ModAPI), "InvokeItemSpawned")]
+    internal static class ConnectNativeSpawnPatch
+    {
+        private static void Prefix(object sender, UserSpawnEventArgs args)
+        { var p = PPGTogetherPlugin.Instance; if (p != null) p.OnItemSpawned(sender, args); }
+    }
+
+    [HarmonyPatch(typeof(ModAPI), "InvokeItemRemoved")]
+    internal static class ConnectNativeRemovePatch
+    {
+        private static void Prefix(object sender, UserSpawnEventArgs args)
+        { var p = PPGTogetherPlugin.Instance; if (p != null) p.OnItemRemoved(sender, args); }
+    }
+
     [HarmonyPatch(typeof(CameraControlBehaviour), "ZoomCamera")]
     internal static class ConnectMenuZoomPatch
     {
@@ -28,8 +45,9 @@ namespace PPGTogether.BepInEx
     [HarmonyPatch(typeof(CatalogBehaviour), "Spawn", new[] { typeof(SpawnableAsset), typeof(bool) })]
     internal static class ClientCatalogSpawnPatch
     {
-        private static bool Prefix(SpawnableAsset e, bool flipped)
+        private static bool Prefix(SpawnableAsset e, bool flipped, out bool __state)
         {
+            __state = false;
             PPGTogetherPlugin plugin = PPGTogetherPlugin.Instance;
             if (plugin == null) return true;
             if (plugin.ShouldRouteVanillaCatalogSpawn)
@@ -41,14 +59,14 @@ namespace PPGTogether.BepInEx
             // local ordering key after CatalogBehaviour.Spawn has begun. Keep
             // the key captured at the public catalog boundary for the host's
             // subsequent authoritative broadcast.
-            plugin.BeginHostCatalogSpawn(e);
+            __state = plugin.BeginHostCatalogSpawn(e);
             return true;
         }
 
-        private static void Postfix()
+        private static void Finalizer(bool __state)
         {
             PPGTogetherPlugin plugin = PPGTogetherPlugin.Instance;
-            if (plugin != null) plugin.EndHostCatalogSpawn();
+            if (__state && plugin != null) plugin.EndHostCatalogSpawn();
         }
     }
 

@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.1.47 — Durable host spawning and canonical replica layouts
+
+- Fixed host-created objects missing from the network registry: the game
+  clears ModAPI event subscriptions during catalogue/mod initialisation.
+  Observe InvokeItemSpawned/InvokeItemRemoved directly through Harmony,
+  preserving immediate registration, broadcast and duplicate suppression.
+- Use catalogue-authored node paths and component schemas for state layouts.
+  Runtime particle/outline children no longer change layout hashes or consume
+  the 256-node limit. Stable authored slots preserve detached cached parts;
+  ambiguous or missing authored nodes do not shift another limb's state.
+- Resolve validated SerialiseInstructions origin keys before name heuristics.
+  Delay post-map discovery until stale roots have had time to be destroyed.
+- Release native host spawn context through an exception-safe Harmony
+  finalizer. Keep the plugin singleton and callbacks alive through transient
+  Steam shutdown; perform final disposal only when the plugin is destroyed.
+- Added opt-in real-engine regression coverage for native host spawn after
+  ClearEvents, duplicate/removal observation, delayed state priming with
+  hundreds of runtime effect nodes, wounds and independent selected assets.
+  Developer test plugins are excluded from the release archive.
+- Protocol v9; both players must install the complete v0.1.47 package.
+  See SYNC_TEST_REPORT_v0.1.47.md for measured results and remaining limits.
+
 ## 0.1.46 — Shared state, world lifecycle and adaptive menu
 
 - Added bounded native wound/skin-mark replication, including bullet/stab

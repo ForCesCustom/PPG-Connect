@@ -1,11 +1,11 @@
-CONNECT v0.1.46 — УСТАНОВКА ДЛЯ ДРУГА
+CONNECT v0.1.47 — УСТАНОВКА ДЛЯ ДРУГА
 ===================================
 
 Скачать полный архив:
-https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.46.zip
+https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.47.zip
 
-У обоих игроков должны совпадать Connect v0.1.46, People Playground 1.27.17
-и используемые моды/предметы. Протокол 8 несовместим со старыми пакетами.
+У обоих игроков должны совпадать Connect v0.1.47, People Playground 1.27.17
+и используемые моды/предметы. Протокол 9 несовместим со старыми пакетами.
 Нужны разные Steam-аккаунты.
 
 1. Полностью закрой People Playground.
@@ -15,7 +15,7 @@ https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.46.zi
 4. Проверь наличие:
    BepInEx\plugins\Connect\Connect.BepInEx.dll
    BepInEx\plugins\Connect\connect-icon.png
-5. Запусти игру через Steam. Нажми F8; версия панели должна быть 0.1.46.
+5. Запусти игру через Steam. Нажми F8; версия панели должна быть 0.1.47.
 
 Карточка Connect в обычном меню Mods — companion. Сам мультиплеер работает
 через BepInEx-панель F8. Новый интерфейс подстраивается под экран и имеет

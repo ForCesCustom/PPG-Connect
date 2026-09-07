@@ -1,12 +1,12 @@
-Connect — BepInEx edition v0.1.46
+Connect — BepInEx edition v0.1.47
 ================================
 
 Package:
-https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.46.zip
+https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.47.zip
 
 Target: People Playground 1.27.17 (Steam build 24793773),
 Unity 2020.3.1f1 Mono x64, BepInEx 5 Unity.Mono-win-x64.
-Protocol: 8. All players need the same Connect version and game/content.
+Protocol: 9. All players need the same Connect version and game/content.
 
 INSTALL
 1. Fully close People Playground.
@@ -30,7 +30,11 @@ are host-validated requests. Guest permissions and request limits still apply.
 Copy/Save/Follow are local operations; unsupported Paste/Load/custom world
 actions remain blocked. Copy does not imply that guest Paste is supported.
 
-SHARED WORLD IN 0.1.46
+SHARED WORLD IN 0.1.47
+Host spawn/remove observation survives the game's ModAPI.ClearEvents call.
+State layouts use catalogue-authored nodes, ignoring added effects/outlines.
+Validated original catalogue keys improve existing-object discovery; map
+transitions wait for old roots to be destroyed before resuming discovery.
 World epochs reject old packets after map changes, including same-map reloads.
 Recognisable existing catalogue objects are discovered on the host. Bounded
 repair passes resend registered spawns; full presence lists remove old replicas.
@@ -49,7 +53,7 @@ The configured object cap does not intercept every native host spawn path.
 There is no host migration or public lobby browser.
 
 VERIFICATION
-Use the same v0.1.46 package on two separate Steam accounts. Compare distinct
+Use the same v0.1.47 package on two separate Steam accounts. Compare distinct
 Tab items, drag, deletion, injury state, supported context actions, pause,
 join-in-progress and same-map reload. Build/codec tests do not establish a live
 two-account pass.

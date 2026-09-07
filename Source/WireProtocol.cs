@@ -66,7 +66,7 @@ namespace PPGTogether.BepInEx
     internal static class Wire
     {
         internal const uint Magic = 0x54475050;
-        internal const ushort ProtocolVersion = 8;
+        internal const ushort ProtocolVersion = 9;
         internal const int HeaderSize = 30;
         internal const int MaxPacketBytes = 49152;
         internal const int MaxStringBytes = 256;

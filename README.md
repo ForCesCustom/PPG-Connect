@@ -1,10 +1,10 @@
 # Connect for People Playground
 
-Current package: **v0.1.46** · protocol **v8** · People Playground **1.27.17**
+Current package: **v0.1.47** · protocol **v9** · People Playground **1.27.17**
 
 ## Скачать и установить
 
-[Скачать полный Connect-v0.1.46.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.46.zip)
+[Скачать полный Connect-v0.1.47.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.47.zip)
 
 У всех игроков должны совпадать версия Connect, сборка игры и используемый контент.
 Полностью закрой игру, распакуй весь ZIP в папку с `People Playground.exe`,
@@ -17,7 +17,17 @@ x64, Doorstop, Connect и карточка для обычного меню Mods
 карту хоста. Дождитесь статуса PLAYING. Камера, масштаб, выбор предмета в Tab,
 выделение и настройки интерфейса остаются отдельными у каждого игрока.
 
-## Что изменилось в 0.1.46
+## Что изменилось в 0.1.47
+
+- Исправлен пропадающий спавн хоста: Connect наблюдает сам вызов игровых
+  событий, поэтому очистка подписчиков при загрузке каталога больше его не отключает.
+- Структура реплики теперь берётся из исходного предмета каталога. Добавленные
+  во время игры эффекты и подсветка не меняют номера частей и не блокируют состояние.
+- Восстановление существующих предметов учитывает исходный ключ каталога;
+  после смены карты оно ждёт удаления старых объектов. Исправлена очистка
+  контекста спавна при исключениях и восстановление после отключения Steam.
+
+Ранее добавлено в 0.1.46:
 
 - Новая адаптивная панель: карточки игроков, более читаемые статусы, настройки
   и прокрутка на небольших экранах.
@@ -42,7 +52,7 @@ x64, Doorstop, Connect и карточка для обычного меню Mods
 
 ## Проверка с другом
 
-Оба установите v0.1.46 и создайте новую Lobby. Выберите разные предметы в Tab
+Оба установите v0.1.47 и создайте новую Lobby. Выберите разные предметы в Tab
 (например Human и Android), спавните с обеих сторон и сравните предметы,
 число объектов, позы и перетаскивание удержанием ЛКМ. Затем проверьте удаление,
 Freeze/Ignite, паузу и повторную загрузку той же карты. Для проверки восстановления
@@ -50,6 +60,8 @@ Freeze/Ignite, паузу и повторную загрузку той же к�
 
 Реальный двухаккаунтный Steam-тест нужно проводить с двумя разными аккаунтами.
 Сборка и автоматические проверки сами по себе его не заменяют.
+Результаты сборки, 1035 проверок в движке и SHA-256:
+[SYNC_TEST_REPORT_v0.1.47.md](SYNC_TEST_REPORT_v0.1.47.md).
 
 ## English
 
@@ -58,14 +70,16 @@ Steam context and Steam Relay. The host simulates the shared world; guests send
 validated intents and display replicated state. Each player keeps an independent
 camera, Tab catalogue, cursor and selection.
 
-[Download Connect-v0.1.46.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.46.zip).
+[Download Connect-v0.1.47.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.47.zip).
 Close the game, extract the complete archive beside `People Playground.exe`,
 merge the supplied folders, then launch through Steam and press F8. Every
 player needs this exact Connect version and matching game/content.
 
-Version 0.1.46 adds epoch-gated same-map reloads, recurring world reconciliation,
-typed object/limb state, shared permitted context/world controls, host wire
-visuals and an adaptive menu. It does not replicate arbitrary Workshop scripts,
+Version 0.1.47 fixes host spawn observation being erased by the game's event
+reset and uses catalogue-authored state layouts instead of transient runtime
+effects. It retains epoch-gated reloads, world reconciliation, typed state,
+shared permitted controls, host wire visuals and the adaptive menu from 0.1.46.
+It does not replicate arbitrary Workshop scripts,
 dynamic object graphs, complete wound textures or all projectile/explosion
 effects. Wires are visual on guests; guest wire creation is not implemented.
 
