@@ -27,6 +27,13 @@ internal static class ObjectStateSmokeTests
         byte[] good = ObjectStateCodec.Encode(source); ObjectStateChunk parsed;
         Check(ObjectStateCodec.TryDecode(good, out parsed), "valid complex state");
         Check(parsed.NetId == 7 && parsed.Layout == source.Layout && parsed.Offset == 1 && parsed.Nodes[0].Fire && parsed.Nodes[0].Health == -8 && parsed.Nodes[0].ScaleX == -2 && parsed.Nodes[1].Flags == 0, "roundtrip material and destroyed node");
+        full.SortingLayerId = unchecked((int)0xCAFEBABE); full.SortingOrder = -32768;
+        Check(ObjectStateCodec.TryDecode(ObjectStateCodec.Encode(source), out parsed) && parsed.Nodes[0].SortingLayerId == full.SortingLayerId && parsed.Nodes[0].SortingOrder == -32768, "signed sprite layer and negative order roundtrip");
+        full.SortingOrder = 32767;
+        Check(ObjectStateCodec.TryDecode(ObjectStateCodec.Encode(source), out parsed) && parsed.Nodes[0].SortingOrder == 32767, "highest sorting order roundtrip");
+        full.SortingOrder = 32768;
+        Check(!ObjectStateCodec.Valid(source), "out of range sorting order rejected");
+        full.SortingLayerId = 0; full.SortingOrder = 0;
         for (int i = 0; i < good.Length; i++) { byte[] truncated = new byte[i]; Array.Copy(good, truncated, i); Check(!Decodes(truncated), "reject truncation at " + i); }
         byte[] trailing = new byte[good.Length + 1]; Array.Copy(good, trailing, good.Length); Check(!Decodes(trailing), "reject trailing bytes");
         byte[] corrupt = (byte[])good.Clone(); Array.Clear(corrupt, 0, 8); Check(!Decodes(corrupt), "zero id");
@@ -41,10 +48,10 @@ internal static class ObjectStateSmokeTests
         corrupt = (byte[])good.Clone(); corrupt[47] = 33; Check(!Decodes(corrupt), "excessive collider count");
         corrupt = (byte[])good.Clone(); corrupt[48] = 1; Check(!Decodes(corrupt), "collider mask cannot address nonexistent collider");
         corrupt = (byte[])good.Clone(); corrupt[68] = 8; Check(!Decodes(corrupt), "invalid sprite flags");
-        corrupt = (byte[])good.Clone(); corrupt[89] = 2; Check(!Decodes(corrupt), "noncanonical fire boolean");
-        corrupt = (byte[])good.Clone(); corrupt[90] = 2; Check(!Decodes(corrupt), "unknown physical flags");
-        corrupt = (byte[])good.Clone(); corrupt[103] = 16; Check(!Decodes(corrupt), "unknown limb flags");
-        corrupt = (byte[])good.Clone(); Array.Copy(BitConverter.GetBytes(1.01f), 0, corrupt, 104, 4); Check(!Decodes(corrupt), "rot outside material range");
+        corrupt = (byte[])good.Clone(); corrupt[95] = 2; Check(!Decodes(corrupt), "noncanonical fire boolean");
+        corrupt = (byte[])good.Clone(); corrupt[96] = 2; Check(!Decodes(corrupt), "unknown physical flags");
+        corrupt = (byte[])good.Clone(); corrupt[109] = 16; Check(!Decodes(corrupt), "unknown limb flags");
+        corrupt = (byte[])good.Clone(); Array.Copy(BitConverter.GetBytes(1.01f), 0, corrupt, 110, 4); Check(!Decodes(corrupt), "rot outside material range");
         Check(!Decodes(null), "null packet");
         Check(!Decodes(new byte[ObjectStateCodec.MaximumChunkBytes + 1]), "oversized packet");
         ObjectStateNode[] maximum = new ObjectStateNode[ObjectStateCodec.NodesPerChunk]; for (int i = 0; i < maximum.Length; i++) maximum[i] = full;

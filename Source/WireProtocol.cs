@@ -1,5 +1,6 @@
 using System;
 using System.Text;
+using System.Runtime.InteropServices;
 
 namespace PPGTogether.BepInEx
 {
@@ -52,7 +53,8 @@ namespace PPGTogether.BepInEx
         GlobalState = 27,
         WireVisual = 28,
         WorldCommand = 29,
-        WoundState = 30
+        WoundState = 30,
+        DeviceState = 31
     }
 
     internal enum WireChannel : byte
@@ -66,7 +68,7 @@ namespace PPGTogether.BepInEx
     internal static class Wire
     {
         internal const uint Magic = 0x54475050;
-        internal const ushort ProtocolVersion = 9;
+        internal const ushort ProtocolVersion = 10;
         internal const int HeaderSize = 30;
         internal const int MaxPacketBytes = 49152;
         internal const int MaxStringBytes = 256;
@@ -77,7 +79,7 @@ namespace PPGTogether.BepInEx
             {
                 case WireMessage.Cursor: return WireChannel.Cursor;
                 case WireMessage.Snapshot: case WireMessage.RigSnapshot: case WireMessage.ObjectState:
-                case WireMessage.GlobalState: case WireMessage.WireVisual: case WireMessage.WoundState: return WireChannel.Snapshot;
+                case WireMessage.GlobalState: case WireMessage.WireVisual: case WireMessage.WoundState: case WireMessage.DeviceState: return WireChannel.Snapshot;
                 case WireMessage.GrabBegin: case WireMessage.GrabGranted: case WireMessage.GrabDenied:
                 case WireMessage.GrabUpdate: case WireMessage.GrabEnd: case WireMessage.SpawnRequest:
                 case WireMessage.Spawn: case WireMessage.Despawn: case WireMessage.ActionDenied:
@@ -144,6 +146,12 @@ namespace PPGTogether.BepInEx
 
     internal sealed class Writer
     {
+        [StructLayout(LayoutKind.Explicit)]
+        private struct FloatBits
+        {
+            [FieldOffset(0)] internal float Value;
+            [FieldOffset(0)] internal uint Bits;
+        }
         private byte[] buffer;
         private int position;
 
@@ -156,7 +164,9 @@ namespace PPGTogether.BepInEx
         internal void UShort(ushort value) { Ensure(2); buffer[position++] = (byte)value; buffer[position++] = (byte)(value >> 8); }
         internal void UInt(uint value) { Ensure(4); buffer[position++] = (byte)value; buffer[position++] = (byte)(value >> 8); buffer[position++] = (byte)(value >> 16); buffer[position++] = (byte)(value >> 24); }
         internal void ULong(ulong value) { UInt((uint)value); UInt((uint)(value >> 32)); }
-        internal void Float(float value) { Raw(BitConverter.GetBytes(value)); }
+        // Keep IEEE bits on the stack; no four-byte array allocation for every
+        // position, limb value, wire point and colour in every snapshot.
+        internal void Float(float value) { FloatBits bits = new FloatBits(); bits.Value = value; UInt(bits.Bits); }
         internal void Bool(bool value) { Byte(value ? (byte)1 : (byte)0); }
 
         internal void String(string value)

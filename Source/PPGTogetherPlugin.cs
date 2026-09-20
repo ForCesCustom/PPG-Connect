@@ -22,7 +22,7 @@ namespace PPGTogether.BepInEx
         internal const string PluginGuid = "local.ppgtogether.steam";
         // Keep the GUID stable so this is a seamless update for existing users.
         internal const string PluginName = "Connect";
-        internal const string PluginVersion = "0.1.47";
+        internal const string PluginVersion = "0.1.48";
         // Fallback only. The handshake and panel use Application.version so a
         // Steam-updated host cannot silently pretend to be an older build.
         internal const string ExpectedGameVersion = "1.27.17";
@@ -300,6 +300,7 @@ namespace PPGTogether.BepInEx
                 if (IsHost) PumpRegisteredWorldBaselines();
                 PumpSharedWorld();
                 PumpWoundStates();
+                PumpDeviceStates();
             }
             UpdateCursorInterpolation();
         }
@@ -715,6 +716,7 @@ namespace PPGTogether.BepInEx
             if (envelope.Type == WireMessage.WireVisual && !IsHost) { if (sessionActive) HandleWireVisual(envelope); return; }
             if (envelope.Type == WireMessage.WorldCommand && IsHost) { HandleWorldCommand(packet, envelope); return; }
             if (envelope.Type == WireMessage.WoundState && !IsHost) { if (sessionActive) HandleWoundState(envelope); return; }
+            if (envelope.Type == WireMessage.DeviceState && !IsHost) { if (sessionActive) HandleDeviceState(envelope); return; }
             Logger.LogWarning("[Connect][Protocol] Ignored " + envelope.Type + " for role " + (IsHost ? "HOST" : "CLIENT") + ".");
         }
 
@@ -2367,10 +2369,17 @@ namespace PPGTogether.BepInEx
             if (args == null || args.Instance == null) return;
             RemoveBotSpawnRecord(args.Instance);
             PPGTogetherIdentity identity = args.Instance.GetComponent<PPGTogetherIdentity>();
+            PPGTogetherIdentity registered;
+            if (identity == null || !registry.TryGet(identity.NetId, out registered) || registered != identity) return;
             if (IsHost && sessionActive && identity != null && identity.NetId != 0)
             {
                 Writer writer = new Writer(8); writer.ULong(identity.NetId); Broadcast(WireMessage.Despawn, WireChannel.World, writer.ToArray(), true);
             }
+            // Native removal removes the registry entry before OnDestroy, so
+            // that callback cannot release these caches afterwards.
+            ReplicatedObjectState.DestroyReplicaParts(identity.NetId);
+            ReplicatedObjectState.Forget(identity.NetId);
+            RemoveClientSnapshotTracking(identity.NetId);
             registry.Remove(args.Instance);
         }
 
@@ -2467,6 +2476,8 @@ namespace PPGTogether.BepInEx
 
         private void RemoveClientSnapshotTracking(ulong id)
         {
+            ReplicatedDeviceState.Forget(id);
+            deviceStateTicks.Remove(id);
             objectStateTicks.Remove(id);
             woundTicks.Remove(id);
             mismatchedLayouts.Remove(id);
@@ -2873,6 +2884,7 @@ namespace PPGTogether.BepInEx
             foreach (PhysicalBehaviour part in ReplicatedObjectState.GetPhysicalParts(identity))
                 if (part != null && part.transform != target.transform && !part.transform.IsChildOf(target.transform)) Destroy(part.gameObject);
             ReplicatedObjectState.Forget(netId);
+            RemoveClientSnapshotTracking(netId);
             registry.Remove(target);
             identity.NetId = 0;
             Writer writer = new Writer(8); writer.ULong(netId);

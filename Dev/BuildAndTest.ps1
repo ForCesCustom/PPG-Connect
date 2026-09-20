@@ -17,11 +17,13 @@ Write-Output 'BUILD PASS'
 $suites = @(
     @{ Name='BotBrainSmokeTests'; Sources=@('BotBrain.cs') },
     @{ Name='ProtocolSmokeTests'; Sources=@('WireProtocol.cs','CursorNetworking.cs','WorldState.cs','ReplicatedObjectState.cs') },
+    @{ Name='WireWriterSmokeTests'; Sources=@('WireProtocol.cs') },
     @{ Name='InstallationHealthSmokeTests'; Sources=@('InstallationHealth.cs') },
     @{ Name='ObjectStateSmokeTests'; Sources=@('WireProtocol.cs','WorldState.cs','ReplicatedObjectState.cs') },
     @{ Name='WorldLifecycleSmokeTests'; Sources=@('WireProtocol.cs','WorldManifestProtocol.cs') },
     @{ Name='SharedWorldSmokeTests'; Sources=@('WireProtocol.cs','SharedWorldProtocol.cs') },
     @{ Name='WoundStateSmokeTests'; Sources=@('WireProtocol.cs','WorldState.cs','ReplicatedObjectState.cs','ReplicatedWoundState.cs') }
+    @{ Name='DeviceStateSmokeTests'; Sources=@('WireProtocol.cs','WorldState.cs','ReplicatedObjectState.cs','ReplicatedDeviceState.cs') }
 )
 foreach ($suite in $suites) {
     $exe = Join-Path $out ($suite.Name + '.exe')
@@ -33,4 +35,9 @@ foreach ($suite in $suites) {
     if ($LASTEXITCODE -ne 0) { throw ($suite.Name + ' failed with ' + $LASTEXITCODE) }
     Write-Output ($suite.Name + ' PASS')
 }
+& $compiler /nologo /target:exe /platform:x64 /main:ReplicationQueueSmokeTests ('/out:' + (Join-Path $out 'ReplicationQueueSmokeTests.exe')) $references $sources (Join-Path $PSScriptRoot 'ReplicationQueueSmokeTests.cs')
+if ($LASTEXITCODE -ne 0) { throw 'Replication queue test compilation failed.' }
+& (Join-Path $out 'ReplicationQueueSmokeTests.exe') $GameRoot
+if ($LASTEXITCODE -ne 0) { throw 'Replication queue tests failed.' }
+Write-Output 'ReplicationQueueSmokeTests PASS'
 Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $out 'Connect.BepInEx.dll')

@@ -13,6 +13,87 @@ namespace PPGTogether.BepInEx
         internal byte[] Data;
     }
 
+    // Only independently replaceable chunks are keyed. In particular, multipart
+    // world/wire manifests must remain distinct FIFO entries.
+    internal sealed class TransientPacketBuffer
+    {
+        private struct Key : IEquatable<Key>
+        {
+            internal ulong Sender, Nonce, Root;
+            internal uint Connection, Epoch, Layout;
+            internal ushort Peer, Part;
+            internal byte Type;
+            public bool Equals(Key other) { return Sender == other.Sender && Connection == other.Connection && Nonce == other.Nonce && Root == other.Root && Epoch == other.Epoch && Layout == other.Layout && Peer == other.Peer && Part == other.Part && Type == other.Type; }
+            public override bool Equals(object other) { return other is Key && Equals((Key)other); }
+            public override int GetHashCode() { unchecked { return Sender.GetHashCode() * 397 ^ (int)Connection ^ Nonce.GetHashCode() ^ Root.GetHashCode() ^ (int)Epoch ^ (int)Layout ^ (Peer << 16) ^ Part ^ Type; } }
+        }
+        private sealed class Entry { internal ReceivedPacket Packet; internal bool Keyed; internal Key Key; }
+        private readonly int capacity;
+        private readonly LinkedList<Entry> packets = new LinkedList<Entry>();
+        private readonly Dictionary<Key, LinkedListNode<Entry>> byKey = new Dictionary<Key, LinkedListNode<Entry>>();
+        internal TransientPacketBuffer(int capacity) { if (capacity < 1) throw new ArgumentOutOfRangeException("capacity"); this.capacity = capacity; }
+        internal int Count { get { return packets.Count; } }
+
+        // Returns true when an obsolete packet was replaced/discarded.
+        internal bool Enqueue(ReceivedPacket packet)
+        {
+            Key key; bool keyed = TryKey(packet, out key);
+            LinkedListNode<Entry> existing;
+            if (keyed && byKey.TryGetValue(key, out existing))
+            {
+                uint next = BitConverter.ToUInt32(packet.Data, 18), previous = BitConverter.ToUInt32(existing.Value.Packet.Data, 18);
+                // The first entry was only header-checked. Its untrusted sequence
+                // must not suppress a valid older/equal candidate if its payload
+                // is malformed. Check the queued payload only on this fallback.
+                if ((unchecked((int)(next - previous)) > 0 || !ValidReplacement(existing.Value.Packet.Data)) && ValidReplacement(packet.Data))
+                    existing.Value.Packet = packet;
+                // Retain the FIFO position: a constantly moving limb must not
+                // push a wound/chunk forever to the back of the receive queue.
+                return true;
+            }
+            bool discarded = packets.Count >= capacity;
+            if (discarded) Dequeue();
+            var node = packets.AddLast(new Entry { Packet = packet, Keyed = keyed, Key = key });
+            if (keyed) byKey.Add(key, node);
+            return discarded;
+        }
+        internal ReceivedPacket Dequeue()
+        {
+            Entry entry = packets.First.Value; packets.RemoveFirst();
+            if (entry.Keyed) byKey.Remove(entry.Key);
+            return entry.Packet;
+        }
+        internal void Clear() { packets.Clear(); byKey.Clear(); }
+
+        private static bool TryKey(ReceivedPacket packet, out Key key)
+        {
+            key = new Key(); byte[] data = packet.Data;
+            if (data == null || data.Length < Wire.HeaderSize + 4 + 16 || data.Length > Wire.MaxPacketBytes ||
+                BitConverter.ToUInt32(data, 0) != Wire.Magic || BitConverter.ToUInt16(data, 4) != Wire.ProtocolVersion ||
+                data[7] != (byte)WireChannel.Snapshot || BitConverter.ToUInt32(data, 26) != data.Length - Wire.HeaderSize) return false;
+            WireMessage type = (WireMessage)data[6];
+            if (type != WireMessage.ObjectState && type != WireMessage.WoundState && type != WireMessage.DeviceState) return false;
+            int start = Wire.HeaderSize + 4;
+            key.Sender = packet.SteamId; key.Connection = packet.Connection.Id;
+            key.Nonce = BitConverter.ToUInt64(data, 8); key.Peer = BitConverter.ToUInt16(data, 16); key.Type = data[6];
+            key.Epoch = BitConverter.ToUInt32(data, Wire.HeaderSize); key.Root = BitConverter.ToUInt64(data, start);
+            key.Layout = BitConverter.ToUInt32(data, start + 8);
+            key.Part = BitConverter.ToUInt16(data, start + (type == WireMessage.ObjectState ? 14 : 12));
+            return key.Root != 0;
+        }
+        private static bool ValidReplacement(byte[] data)
+        {
+            // Validate the complete candidate only on a collision, not for every
+            // queued packet. Malformed newer data cannot evict a valid state.
+            int start = Wire.HeaderSize + 4;
+            byte[] payload = new byte[data.Length - start];
+            Buffer.BlockCopy(data, start, payload, 0, payload.Length);
+            if ((WireMessage)data[6] == WireMessage.ObjectState) { ObjectStateChunk chunk; return ObjectStateCodec.TryDecode(payload, out chunk); }
+            if ((WireMessage)data[6] == WireMessage.DeviceState) { DeviceState device; return DeviceStateCodec.TryDecode(payload, out device); }
+            WoundState wound; return WoundStateCodec.TryDecode(payload, out wound);
+        }
+    }
+
     internal sealed class SteamRelayTransport
     {
         private readonly PPGTogetherPlugin plugin;
@@ -20,7 +101,7 @@ namespace PPGTogether.BepInEx
         // disposable physics/cursor snapshots. Keep the two classes separate
         // and always drain world/control work first.
         private readonly Queue<ReceivedPacket> reliableReceived = new Queue<ReceivedPacket>();
-        private readonly Queue<ReceivedPacket> transientReceived = new Queue<ReceivedPacket>();
+        private readonly TransientPacketBuffer transientReceived = new TransientPacketBuffer(192);
         private readonly object queueLock = new object();
         private HostSocket socket;
         private ClientConnection client;
@@ -55,11 +136,18 @@ namespace PPGTogether.BepInEx
 
         internal void Pump()
         {
+            int receiveLimit;
+            lock (queueLock) receiveLimit = ReceiveBudget(reliableReceived.Count);
+            // Do not consume messages we cannot retain. Steam keeps reliable
+            // messages queued until the application catches up next frame.
+            if (receiveLimit <= 0) return;
             if (socket != null)
-                socket.Receive(128, false);
+                socket.Receive(receiveLimit, false);
             if (client != null)
-                client.Receive(128, false);
+                client.Receive(receiveLimit, false);
         }
+
+        internal static int ReceiveBudget(int protectedCount) { return Math.Max(0, Math.Min(128, 512 - protectedCount)); }
 
         internal bool TryDequeue(out ReceivedPacket packet)
         {
@@ -149,17 +237,15 @@ namespace PPGTogether.BepInEx
                     // Snapshot/cursor packets have a newer replacement within
                     // milliseconds. Dropping an old one is correct; dropping
                     // a reliable Spawn is not.
-                    if (transientReceived.Count >= 192)
+                    if (transientReceived.Enqueue(packet))
                     {
                         // Keep the newest visual state. Retaining the oldest
                         // snapshots under pressure makes a newly-created root
                         // look permanently stale even though newer poses arrive.
-                        transientReceived.Dequeue();
                         droppedTransientPackets++;
                         if (droppedTransientPackets == 1 || droppedTransientPackets % 256 == 0)
                             plugin.LogTransport("Coalesced " + droppedTransientPackets + " transient relay packet(s) to protect reliable world messages.");
                     }
-                    transientReceived.Enqueue(packet);
                     return;
                 }
                 if (reliableReceived.Count < 512)
@@ -167,8 +253,12 @@ namespace PPGTogether.BepInEx
                     reliableReceived.Enqueue(packet);
                     return;
                 }
-                plugin.LogTransport("Dropped a reliable relay packet because its protected queue is full.");
+                // Should be unreachable with Pump backpressure. If a concurrent
+                // callback violates that invariant, fail explicitly rather than
+                // continue a world after silently losing its Spawn/Despawn.
+                plugin.LogTransport("Reliable relay queue overflow; closing connection " + connection.Id + " to require a clean world resync.");
             }
+            connection.Close(false, 4002, "Reliable queue overloaded; reconnect to resynchronise");
         }
 
         private static bool IsTransientPacket(byte[] data)
@@ -177,7 +267,7 @@ namespace PPGTogether.BepInEx
             WireMessage type = (WireMessage)data[6];
             return type == WireMessage.Cursor || type == WireMessage.Snapshot || type == WireMessage.RigSnapshot ||
                 type == WireMessage.ObjectState || type == WireMessage.GlobalState || type == WireMessage.WireVisual ||
-                type == WireMessage.WoundState || type == WireMessage.GrabUpdate;
+                type == WireMessage.WoundState || type == WireMessage.DeviceState || type == WireMessage.GrabUpdate;
         }
 
         private sealed class HostSocket : SocketManager

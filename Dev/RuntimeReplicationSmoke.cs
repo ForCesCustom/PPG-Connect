@@ -76,7 +76,7 @@ public sealed class RuntimeReplicationSmoke : BaseUnityPlugin
         SpriteRenderer[] sprites = host.GetComponentsInChildren<SpriteRenderer>(true);
         foreach (PhysicalBehaviour physical in physicals) { physical.Temperature = 240; physical.Charge = 3; physical.BurnProgress = .35f; physical.Wetness = .4f; physical.IsWeightless = true; }
         foreach (LimbBehaviour limb in limbs) { limb.Health = 8; limb.Numbness = .5f; limb.Broken = true; limb.Frozen = true; }
-        foreach (SpriteRenderer sprite in sprites) { sprite.color = new Color(.3f, .4f, .7f, .8f); sprite.flipX = true; }
+        foreach (SpriteRenderer sprite in sprites) { sprite.color = new Color(.3f, .4f, .7f, .8f); sprite.flipX = true; sprite.sortingOrder = -123; }
         foreach (SkinMaterialHandler skin in host.GetComponentsInChildren<SkinMaterialHandler>(true))
         {
             skin.damagePoints[0] = new Vector4(-.04f, .1f, .5f, 1);
@@ -250,6 +250,7 @@ public sealed class RuntimeReplicationSmoke : BaseUnityPlugin
             PhysicalBehaviour physical = t.GetComponent<PhysicalBehaviour>(); if ((state.Flags & 16) != 0) Check(physical != null && Mathf.Abs(physical.Temperature - state.Temperature) < .01f && Mathf.Abs(physical.BurnProgress - state.Burn) < .001f && physical.IsWeightless == ((state.PhysicalFlags & 1) != 0), "physical state parity");
             LimbBehaviour limb = t.GetComponent<LimbBehaviour>(); if ((state.Flags & 32) != 0) Check(limb != null && Mathf.Abs(limb.Health - state.Health) < .001f && limb.Broken == ((state.LimbFlags & 1) != 0), "limb state parity");
             SpriteRenderer sprite = t.GetComponent<SpriteRenderer>(); if ((state.Flags & 8) != 0) Check(sprite != null && Mathf.Abs(sprite.color.r - state.Red) < .001f && sprite.flipX == ((state.SpriteFlags & 2) != 0), "sprite state parity");
+            if ((state.Flags & 8) != 0) Check(sprite.sortingLayerID == state.SortingLayerId && sprite.sortingOrder == state.SortingOrder, "sprite layering parity");
         }
     }
 

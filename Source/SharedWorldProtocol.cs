@@ -36,6 +36,76 @@ namespace PPGTogether.BepInEx
     {
         internal int Id; internal float Width, R, G, B, A; internal float[] Points;
     }
+    // Each bounded packet carries part of one complete wire set. A receiver
+    // must not treat an individual page as a deletion manifest.
+    internal static class WireVisualSnapshotCodec
+    {
+        internal const int MaximumLines = 1000;
+        internal const int HeaderBytes = 8;
+        internal static List<byte[]> Encode(uint revision, List<WireVisualState> records)
+        {
+            if (records == null || records.Count > MaximumLines) throw new ArgumentException("Invalid wire snapshot size");
+            HashSet<int> ids = new HashSet<int>();
+            foreach (WireVisualState record in records)
+                if (record == null || !ids.Add(record.Id)) throw new ArgumentException("Duplicate wire snapshot identity");
+            List<byte[]> packets = new List<byte[]>();
+            for (int offset = 0; offset < Math.Max(1, records.Count); offset += WireVisualCodec.MaximumLines)
+            {
+                int count = Math.Min(WireVisualCodec.MaximumLines, records.Count - offset);
+                byte[] body = WireVisualCodec.Encode(records.GetRange(offset, count));
+                Writer w = new Writer(HeaderBytes + body.Length);
+                w.UInt(revision); w.UShort((ushort)records.Count); w.UShort((ushort)offset); w.Raw(body);
+                packets.Add(w.ToArray());
+            }
+            return packets;
+        }
+        internal static bool TryDecode(byte[] payload, out uint revision, out int total, out int offset, out List<WireVisualState> records)
+        {
+            revision = 0; total = offset = 0; records = null;
+            if (payload == null || payload.Length < HeaderBytes + 2 || payload.Length > Wire.MaxPacketBytes - Wire.HeaderSize - 4) return false;
+            Reader r = new Reader(payload); ushort rawTotal, rawOffset;
+            if (!r.UInt(out revision) || !r.UShort(out rawTotal) || !r.UShort(out rawOffset)) return false;
+            total = rawTotal; offset = rawOffset;
+            if (total > MaximumLines || offset % WireVisualCodec.MaximumLines != 0 || offset > total || (total != 0 && offset == total)) return false;
+            byte[] body = new byte[payload.Length - HeaderBytes]; Array.Copy(payload, HeaderBytes, body, 0, body.Length);
+            return WireVisualCodec.TryDecode(body, out records) && records.Count == Math.Min(WireVisualCodec.MaximumLines, total - offset);
+        }
+    }
+
+    internal sealed class WireVisualSnapshotCollector
+    {
+        private bool started, completed;
+        private uint revision;
+        private int total, received;
+        private WireVisualState[] lines;
+        private bool[] pages;
+        private readonly HashSet<int> ids = new HashSet<int>();
+
+        internal bool Accept(byte[] payload, out List<WireVisualState> snapshot)
+        {
+            snapshot = null;
+            uint incoming; int size, offset; List<WireVisualState> records;
+            if (!WireVisualSnapshotCodec.TryDecode(payload, out incoming, out size, out offset, out records)) return false;
+            if (started && incoming != revision && unchecked((int)(incoming - revision)) <= 0) return false;
+            if (!started || incoming != revision)
+            {
+                started = true; completed = false; revision = incoming; total = size; received = 0;
+                lines = new WireVisualState[size]; pages = new bool[Math.Max(1, (size + WireVisualCodec.MaximumLines - 1) / WireVisualCodec.MaximumLines)]; ids.Clear();
+            }
+            if (completed || size != total || pages[offset / WireVisualCodec.MaximumLines]) return false;
+            // Validate cross-page identity uniqueness before mutating collection.
+            foreach (WireVisualState record in records) if (ids.Contains(record.Id)) return false;
+            foreach (WireVisualState record in records) ids.Add(record.Id);
+            records.CopyTo(lines, offset); pages[offset / WireVisualCodec.MaximumLines] = true; received += records.Count;
+            if (received != total) return false;
+            completed = true; snapshot = new List<WireVisualState>(lines); return true;
+        }
+        internal void Clear()
+        {
+            started = completed = false; revision = 0; total = received = 0; lines = null; pages = null; ids.Clear();
+        }
+    }
+
     internal static class WireVisualCodec
     {
         internal const int MaximumLines = 128, MaximumPoints = 16;

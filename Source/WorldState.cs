@@ -25,8 +25,10 @@ namespace PPGTogether.BepInEx
         private readonly Dictionary<ulong, PPGTogetherIdentity> byId = new Dictionary<ulong, PPGTogetherIdentity>();
         private readonly Dictionary<GameObject, PPGTogetherIdentity> byObject = new Dictionary<GameObject, PPGTogetherIdentity>();
         private ulong nextId = 1;
+        private uint revision;
 
         internal int Count { get { return byId.Count; } }
+        internal uint Revision { get { return revision; } }
 
         internal PPGTogetherIdentity RegisterHost(GameObject gameObject, string spawnKey)
         {
@@ -42,6 +44,7 @@ namespace PPGTogether.BepInEx
             identity.SpawnKey = spawnKey ?? string.Empty;
             byId[identity.NetId] = identity;
             byObject[gameObject] = identity;
+            revision++;
             return identity;
         }
 
@@ -60,6 +63,7 @@ namespace PPGTogether.BepInEx
             identity.ReplicatedSpawn = true;
             byId[netId] = identity;
             byObject[gameObject] = identity;
+            revision++;
             if (netId >= nextId) nextId = netId + 1;
             return identity;
         }
@@ -68,7 +72,7 @@ namespace PPGTogether.BepInEx
         {
             if (!byId.TryGetValue(netId, out identity) || identity == null)
             {
-                byId.Remove(netId);
+                if (byId.Remove(netId)) revision++;
                 return false;
             }
             return true;
@@ -96,7 +100,7 @@ namespace PPGTogether.BepInEx
             if (ReferenceEquals(identity, null)) return;
             PPGTogetherIdentity registered;
             if (byId.TryGetValue(identity.NetId, out registered) && ReferenceEquals(registered, identity))
-                byId.Remove(identity.NetId);
+                if (byId.Remove(identity.NetId)) revision++;
             List<GameObject> remove = null;
             foreach (KeyValuePair<GameObject, PPGTogetherIdentity> pair in byObject)
                 if (ReferenceEquals(pair.Value, identity))
@@ -111,16 +115,23 @@ namespace PPGTogether.BepInEx
         internal IEnumerable<PPGTogetherIdentity> All()
         {
             List<PPGTogetherIdentity> result = new List<PPGTogetherIdentity>();
+            CopyTo(result);
+            return result;
+        }
+
+        internal void CopyTo(List<PPGTogetherIdentity> result)
+        {
+            result.Clear();
             foreach (PPGTogetherIdentity identity in byId.Values)
                 if (identity != null)
                     result.Add(identity);
-            return result;
         }
 
         internal void Clear()
         {
             byId.Clear();
             byObject.Clear();
+            revision++;
             // IDs must remain unique for the lifetime of this relay session.
             // A late unreliable pose from the previous map must never target a
             // freshly-spawned object that happened to reuse its old ID.

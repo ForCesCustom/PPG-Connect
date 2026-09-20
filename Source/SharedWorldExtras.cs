@@ -8,8 +8,13 @@ namespace PPGTogether.BepInEx
     public sealed partial class PPGTogetherPlugin
     {
         private float nextSharedWorldAt;
-        private uint lastGlobalTick, lastWireTick;
-        private bool hasGlobalTick, hasWireTick, applyingSharedWorld;
+        private uint lastGlobalTick, wireSnapshotRevision;
+        private bool hasGlobalTick, applyingSharedWorld;
+        private float nextWireDiscoveryAt;
+        private WireBehaviour[] discoveredWires = new WireBehaviour[0];
+        private readonly Queue<byte[]> pendingWireSnapshots = new Queue<byte[]>();
+        private readonly WireVisualSnapshotCollector wireSnapshots = new WireVisualSnapshotCollector();
+        private bool wireLimitReported;
         private readonly Dictionary<int, LineRenderer> replicaWires = new Dictionary<int, LineRenderer>();
         private Material replicaWireMaterial;
         private bool savedGuestGlobal;
@@ -163,6 +168,11 @@ namespace PPGTogether.BepInEx
         {
             if (!sessionActive || Global.main == null) return;
             if (!IsHost) return;
+            bool receiver = false;
+            foreach (Peer peer in peers.Values)
+                if (peer != null && peer.Connection != null && peer.MapStatus == PeerMapStatus.Playing &&
+                    string.Equals(peer.MapIdentity, activeMapIdentity, StringComparison.Ordinal)) { receiver = true; break; }
+            if (!receiver) { pendingWireSnapshots.Clear(); nextWireDiscoveryAt = 0; return; }
             if (Time.unscaledTime < nextSharedWorldAt) return;
             nextSharedWorldAt = Time.unscaledTime + .1f;
             SharedGlobalState state = new SharedGlobalState();
@@ -220,12 +230,34 @@ namespace PPGTogether.BepInEx
 
         private void BroadcastWireVisuals()
         {
-            WireBehaviour[] wires = UnityEngine.Object.FindObjectsOfType<WireBehaviour>();
+            if (pendingWireSnapshots.Count == 0) CaptureWireVisuals();
+            int bytes = 0;
+            // A large snapshot completes across bounded ticks. Do not restart
+            // its first page each tick and starve the later wires.
+            while (pendingWireSnapshots.Count > 0 && bytes + pendingWireSnapshots.Peek().Length <= 48000)
+            {
+                byte[] packet = pendingWireSnapshots.Dequeue(); bytes += packet.Length;
+                Broadcast(WireMessage.WireVisual, WireChannel.Snapshot, packet, false);
+            }
+        }
+
+        private void CaptureWireVisuals()
+        {
+            if (Time.unscaledTime >= nextWireDiscoveryAt)
+            {
+                discoveredWires = UnityEngine.Object.FindObjectsOfType<WireBehaviour>();
+                nextWireDiscoveryAt = Time.unscaledTime + .5f;
+            }
             List<WireVisualState> records = new List<WireVisualState>();
-            foreach (WireBehaviour wire in wires)
+            foreach (WireBehaviour wire in discoveredWires)
             {
                 if (wire == null || wire.lineRenderer == null || !wire.lineRenderer.enabled || wire.lineRenderer.positionCount < 2) continue;
-                if (records.Count >= WireVisualCodec.MaximumLines) break;
+                if (records.Count >= WireVisualSnapshotCodec.MaximumLines)
+                {
+                    if (!wireLimitReported) Logger.LogWarning("[Connect][World] More than 1000 visible wires; retaining the last complete wire view instead of publishing a truncated set.");
+                    wireLimitReported = true;
+                    return;
+                }
                 LineRenderer line = wire.lineRenderer;
                 WireVisualState record = new WireVisualState();
                 if (!Finite(wire.WireWidth) || !Finite(wire.WireColor.r) || !Finite(wire.WireColor.g) || !Finite(wire.WireColor.b) || !Finite(wire.WireColor.a)) continue;
@@ -243,14 +275,14 @@ namespace PPGTogether.BepInEx
                 }
                 if (valid) records.Add(record);
             }
-            Broadcast(WireMessage.WireVisual, WireChannel.Snapshot, WireVisualCodec.Encode(records), false);
+            wireLimitReported = false;
+            foreach (byte[] packet in WireVisualSnapshotCodec.Encode(++wireSnapshotRevision, records)) pendingWireSnapshots.Enqueue(packet);
         }
 
         private void HandleWireVisual(Envelope envelope)
         {
             List<WireVisualState> records;
-            if ((hasWireTick && !CursorSequence.IsNewer(envelope.Tick, lastWireTick)) || !WireVisualCodec.TryDecode(envelope.Payload, out records)) return;
-            lastWireTick = envelope.Tick; hasWireTick = true;
+            if (!wireSnapshots.Accept(envelope.Payload, out records)) return;
             HashSet<int> present = new HashSet<int>();
             if (replicaWireMaterial == null)
             {
@@ -293,7 +325,9 @@ namespace PPGTogether.BepInEx
                 }
                 finally { applyingSharedWorld = previousApplying; }
             }
-            savedGuestGlobal = false; hasGlobalTick = false; hasWireTick = false; nextSharedWorldAt = 0;
+            savedGuestGlobal = false; hasGlobalTick = false; nextSharedWorldAt = 0;
+            pendingWireSnapshots.Clear(); wireSnapshots.Clear(); discoveredWires = new WireBehaviour[0];
+            nextWireDiscoveryAt = 0; wireSnapshotRevision = 0; wireLimitReported = false;
         }
     }
 

@@ -1,10 +1,10 @@
 # Connect for People Playground
 
-Current package: **v0.1.47** · protocol **v9** · People Playground **1.27.17**
+Current package: **v0.1.48** · protocol **v10** · People Playground **1.27.17**
 
 ## Скачать и установить
 
-[Скачать полный Connect-v0.1.47.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.47.zip)
+[Скачать полный Connect-v0.1.48.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.48.zip)
 
 У всех игроков должны совпадать версия Connect, сборка игры и используемый контент.
 Полностью закрой игру, распакуй весь ZIP в папку с `People Playground.exe`,
@@ -17,7 +17,19 @@ x64, Doorstop, Connect и карточка для обычного меню Mods
 карту хоста. Дождитесь статуса PLAYING. Камера, масштаб, выбор предмета в Tab,
 выделение и настройки интерфейса остаются отдельными у каждого игрока.
 
-## Что изменилось в 0.1.47
+## Что изменилось в 0.1.48
+
+- Передаётся порядок наложения спрайтов и их sorting layer, а также включение
+  штатных прожекторов и яркость LightSprite, если свет входит в исходный prefab.
+- Вместо обрезки на 128 проводах передаётся полный набор до 1000 линий частями.
+  Потеря одной части не удаляет остальные линии: отображается последний полный набор.
+- Сетевые очереди заменяют устаревшие снимки того же объекта/части свежими;
+  надёжные команды спавна и удаления защищены от переполнения при приёме.
+- Кэшируются списки объектов, источников света и тел с ранами. Без готовых
+  игроков снимки не собираются. Убраны временные массивы на каждое float-число.
+- Исправлена очистка сохранённых данных после обычного удаления предметов.
+
+Ранее исправлено в 0.1.47:
 
 - Исправлен пропадающий спавн хоста: Connect наблюдает сам вызов игровых
   событий, поэтому очистка подписчиков при загрузке каталога больше его не отключает.
@@ -52,7 +64,7 @@ x64, Doorstop, Connect и карточка для обычного меню Mods
 
 ## Проверка с другом
 
-Оба установите v0.1.47 и создайте новую Lobby. Выберите разные предметы в Tab
+Оба установите v0.1.48 и создайте новую Lobby. Выберите разные предметы в Tab
 (например Human и Android), спавните с обеих сторон и сравните предметы,
 число объектов, позы и перетаскивание удержанием ЛКМ. Затем проверьте удаление,
 Freeze/Ignite, паузу и повторную загрузку той же карты. Для проверки восстановления
@@ -60,8 +72,8 @@ Freeze/Ignite, паузу и повторную загрузку той же к�
 
 Реальный двухаккаунтный Steam-тест нужно проводить с двумя разными аккаунтами.
 Сборка и автоматические проверки сами по себе его не заменяют.
-Результаты сборки, 1035 проверок в движке и SHA-256:
-[SYNC_TEST_REPORT_v0.1.47.md](SYNC_TEST_REPORT_v0.1.47.md).
+Результаты сборки, проверок в движке, локального замера и SHA-256:
+[SYNC_TEST_REPORT_v0.1.48.md](SYNC_TEST_REPORT_v0.1.48.md).
 
 ## English
 
@@ -70,12 +82,16 @@ Steam context and Steam Relay. The host simulates the shared world; guests send
 validated intents and display replicated state. Each player keeps an independent
 camera, Tab catalogue, cursor and selection.
 
-[Download Connect-v0.1.47.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.47.zip).
+[Download Connect-v0.1.48.zip](https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.48.zip).
 Close the game, extract the complete archive beside `People Playground.exe`,
 merge the supplied folders, then launch through Steam and press F8. Every
 player needs this exact Connect version and matching game/content.
 
-Version 0.1.47 fixes host spawn observation being erased by the game's event
+Version 0.1.48 adds sprite sorting, authored light/floodlight state, atomic
+multipart wire views up to 1000 lines, bounded receive backpressure and keyed
+snapshot coalescing. Membership-cached root lists and allocation-free float
+writing reduce repeated work. This is not a measured multiplayer FPS claim.
+Version 0.1.47 fixed host spawn observation being erased by the game's event
 reset and uses catalogue-authored state layouts instead of transient runtime
 effects. It retains epoch-gated reloads, world reconciliation, typed state,
 shared permitted controls, host wire visuals and the adaptive menu from 0.1.46.

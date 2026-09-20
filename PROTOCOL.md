@@ -1,6 +1,6 @@
-# Connect relay protocol v9
+# Connect relay protocol v10
 
-Version 0.1.47 uses the game-supplied Facepunch SteamNetworkingSockets context.
+Version 0.1.48 uses the game-supplied Facepunch SteamNetworkingSockets context.
 All peers must agree on protocol, Connect version and game version. Payloads
 are typed bounded records; files, CLR object graphs, method names and remote
 save deserialization are absent.
@@ -11,6 +11,11 @@ sibling ordinals. Runtime effects/outlines do not create network node slots.
 Missing authored parts retain their slots. Do not mix v8/v9 peers even though
 individual object-state record fields remain unchanged.
 
+Protocol 10 adds signed sorting-layer ID (uint32 bits) and signed sorting
+order (uint16 bits) immediately after each sprite-flags byte in ObjectState.
+Unknown local sorting layers reject the chunk before mutation. WireVisual now
+uses complete multipart revisions, and DeviceState is a new typed message.
+
 ## Envelope and authority
 
 All fields are little-endian. The fixed header is 30 bytes.
@@ -18,7 +23,7 @@ All fields are little-endian. The fixed header is 30 bytes.
 | Offset | Bytes | Field |
 |---:|---:|---|
 | 0 | 4 | Magic 0x54475050 |
-| 4 | 2 | Protocol version 9 |
+| 4 | 2 | Protocol version 10 |
 | 6 | 1 | Message type |
 | 7 | 1 | Logical channel |
 | 8 | 8 | Session nonce |
@@ -46,7 +51,7 @@ objects.
   WorldManifest and WorldCommand. State-changing events are reliable; grab
   movement uses disposable updates.
 - Snapshot: ObjectState, GlobalState, WireVisual and WoundState. Legacy Snapshot and
-  RigSnapshot IDs remain recognised. Disposable queues retain recent state.
+  DeviceState, RigSnapshot IDs remain recognised. Disposable queues retain recent state.
 - Cursor: independent world-space cursor data; camera and menu state stay local.
 
 ## World and map records
@@ -84,10 +89,28 @@ A layout mismatch is reported instead of applying values to unrelated nodes.
 Per-root/per-chunk tick tracking rejects older updates.
 
 GlobalState (27) carries bounded pause/slow-motion and supported environmental
-settings. WireVisual (28) carries up to 128 bounded line records for a guest
-visual representation; it does not authorize guest wire creation or electrical
+settings. WireVisual (28) starts with uint32 revision, uint16 total and uint16
+offset, followed by up to 128 bounded line records. A complete revision has
+at most 1000 distinct line IDs. Only a complete revision replaces the guest
+view; empty complete revisions clear it. Pages may arrive out of order and
+incomplete revisions do not delete visible lines. The world epoch still scopes
+the outer message. This does not authorize guest wire creation or electrical
 simulation. Large object-state batches resume across ticks instead of always
 restarting from their first parts.
+
+DeviceState (31) carries uint64 root ID, uint32 device-layout fingerprint,
+uint16 canonical block offset, uint8 record count and up to 24 fixed records.
+Each record is uint16 node index, uint8 kind bits (LightSprite=1,
+SingleFloodlight=2), float32 brightness and canonical boolean activation.
+Packets are at most 207 bytes, brightness is finite in [0,1000000], inactive
+kind fields must be zero. Receiver checks the whole schema before applying.
+No Use callbacks, shared-material changes or remote component lookup occur.
+
+Object/Wound/Device receive queues coalesce by sender/connection/session,
+epoch, type, root, layout and offset, preserving FIFO position and newest
+validated sequence. Multipart wires retain separate FIFO entries. Native
+receive batch size respects free reliable-queue capacity (512); transient
+storage is bounded to 192. Reliable overflow fails explicitly, not silently.
 
 ## Player requests
 

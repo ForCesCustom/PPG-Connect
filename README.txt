@@ -1,12 +1,12 @@
-Connect — BepInEx edition v0.1.47
+Connect — BepInEx edition v0.1.48
 ================================
 
 Package:
-https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.47.zip
+https://github.com/ForCesCustom/PPG-Connect/raw/main/Releases/Connect-v0.1.48.zip
 
 Target: People Playground 1.27.17 (Steam build 24793773),
 Unity 2020.3.1f1 Mono x64, BepInEx 5 Unity.Mono-win-x64.
-Protocol: 9. All players need the same Connect version and game/content.
+Protocol: 10. All players need the same Connect version and game/content.
 
 INSTALL
 1. Fully close People Playground.
@@ -30,7 +30,13 @@ are host-validated requests. Guest permissions and request limits still apply.
 Copy/Save/Follow are local operations; unsupported Paste/Load/custom world
 actions remain blocked. Copy does not imply that guest Paste is supported.
 
-SHARED WORLD IN 0.1.47
+SHARED WORLD IN 0.1.48
+Sprite sort order/layer and authored light/floodlight state are transmitted.
+Wire views support complete multipart sets up to 1000 lines. An incomplete
+revision retains the previous complete view, not a truncated replacement.
+Cached eligible root lists, protected reliable queues and disposable snapshot
+coalescing reduce repeated work. Float encoding no longer allocates per value.
+Native removal now releases object/device caches immediately.
 Host spawn/remove observation survives the game's ModAPI.ClearEvents call.
 State layouts use catalogue-authored nodes, ignoring added effects/outlines.
 Validated original catalogue keys improve existing-object discovery; map
@@ -41,7 +47,7 @@ repair passes resend registered spawns; full presence lists remove old replicas.
 Typed state includes poses, scale, supported sprite/collider state, physical
 properties and selected limb/skin values. Cached part references allow existing
 limbs to keep following the host after detachment.
-Host wire lines have a bounded visual representation on guests.
+Host wire lines are visual only; new-wire discovery may take 0.5 seconds.
 
 LIMITS
 Read KNOWN_LIMITATIONS.md. Support is bounded to 256 cached nodes per root.
@@ -53,9 +59,10 @@ The configured object cap does not intercept every native host spawn path.
 There is no host migration or public lobby browser.
 
 VERIFICATION
-Use the same v0.1.47 package on two separate Steam accounts. Compare distinct
+Use the same v0.1.48 package on two separate Steam accounts. Compare distinct
 Tab items, drag, deletion, injury state, supported context actions, pause,
 join-in-progress and same-map reload. Build/codec tests do not establish a live
 two-account pass.
 Logs: <People Playground>\BepInEx\LogOutput.log
 Russian instructions: FRIEND_INSTALL_GUIDE_RU.txt
+Measured checks and DLL SHA-256: SYNC_TEST_REPORT_v0.1.48.md

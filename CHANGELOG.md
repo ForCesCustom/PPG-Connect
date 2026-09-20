@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.1.48 — Broader presentation sync and bounded networking work
+
+- Replicate sprite sorting layer/order and closed authored LightSprite
+  brightness / SingleFloodlight activation state without replaying Use or
+  mutating shared materials. Runtime-generated lights remain outside scope.
+- Replace the 128-wire truncated view with complete multipart revisions up to
+  1000 lines. Preserve the previous complete view on missing pages; cache
+  wire discovery for 500ms and cap transmission at 48KB per shared tick.
+- Reuse membership-revision cached sorted roots and eligible wound/device
+  lists. Skip state capture when no matching-map Playing peers are present.
+- Bound native receive to reliable queue capacity; never silently discard
+  Spawn/Despawn on overflow. Coalesce only validated independently replaceable
+  snapshots by full sender/session/epoch/object/chunk identity.
+- Replace per-float byte-array allocations with stack-bit little-endian writes.
+  Added byte-equivalence tests and a reproducible local encoder microbenchmark.
+- Release replication caches on native remove and host delete, not just on
+  map cleanup; added actual-engine cleanup regression assertions.
+- Protocol 10; every player needs the complete v0.1.48 package. See
+  SYNC_TEST_REPORT_v0.1.48.md for actual results and remaining unsupported work.
+
 ## 0.1.47 — Durable host spawning and canonical replica layouts
 
 - Fixed host-created objects missing from the network registry: the game

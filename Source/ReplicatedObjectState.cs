@@ -14,6 +14,7 @@ namespace PPGTogether.BepInEx
         internal float X, Y, Z, Angle, ScaleX = 1, ScaleY = 1, ScaleZ = 1;
         internal float Red = 1, Green = 1, Blue = 1, Alpha = 1;
         internal byte SpriteFlags; // enabled, flipX, flipY
+        internal int SortingLayerId, SortingOrder;
         internal float Temperature, Charge, Burn, BurnIntensity, Wetness;
         internal bool Fire;
         internal float Health, Numbness, BodyTemperature;
@@ -47,7 +48,7 @@ namespace PPGTogether.BepInEx
                 w.Float(n.X); w.Float(n.Y); w.Float(n.Z); w.Float(n.Angle);
                 w.Float(n.ScaleX); w.Float(n.ScaleY); w.Float(n.ScaleZ);
                 w.Byte(n.Layer); w.Byte(n.ColliderCount); w.UInt(n.ColliderMask);
-                if ((n.Flags & 8) != 0) { w.Float(n.Red); w.Float(n.Green); w.Float(n.Blue); w.Float(n.Alpha); w.Byte(n.SpriteFlags); }
+                if ((n.Flags & 8) != 0) { w.Float(n.Red); w.Float(n.Green); w.Float(n.Blue); w.Float(n.Alpha); w.Byte(n.SpriteFlags); w.UInt(unchecked((uint)n.SortingLayerId)); w.UShort(unchecked((ushort)n.SortingOrder)); }
                 if ((n.Flags & 16) != 0) { w.Float(n.Temperature); w.Float(n.Charge); w.Float(n.Burn); w.Float(n.BurnIntensity); w.Float(n.Wetness); w.Bool(n.Fire); w.Byte(n.PhysicalFlags); }
                 if ((n.Flags & 32) != 0) { w.Float(n.Health); w.Float(n.Numbness); w.Float(n.BodyTemperature); w.Byte(n.LimbFlags); }
                 if ((n.Flags & 64) != 0) { w.Float(n.Rot); w.Float(n.Acid); }
@@ -74,6 +75,7 @@ namespace PPGTogether.BepInEx
                 if (!r.Float(out n.X) || !r.Float(out n.Y) || !r.Float(out n.Z) || !r.Float(out n.Angle) || !r.Float(out n.ScaleX) || !r.Float(out n.ScaleY) || !r.Float(out n.ScaleZ)) return false;
                 if (!r.Byte(out n.Layer) || !r.Byte(out n.ColliderCount) || !r.UInt(out n.ColliderMask)) return false;
                 if ((n.Flags & 8) != 0 && (!r.Float(out n.Red) || !r.Float(out n.Green) || !r.Float(out n.Blue) || !r.Float(out n.Alpha) || !r.Byte(out n.SpriteFlags))) return false;
+                if ((n.Flags & 8) != 0) { uint layer; ushort order; if (!r.UInt(out layer) || !r.UShort(out order)) return false; n.SortingLayerId = unchecked((int)layer); n.SortingOrder = unchecked((short)order); }
                 if ((n.Flags & 16) != 0 && (!r.Float(out n.Temperature) || !r.Float(out n.Charge) || !r.Float(out n.Burn) || !r.Float(out n.BurnIntensity) || !r.Float(out n.Wetness) || !r.Bool(out n.Fire) || !r.Byte(out n.PhysicalFlags))) return false;
                 if ((n.Flags & 32) != 0 && (!r.Float(out n.Health) || !r.Float(out n.Numbness) || !r.Float(out n.BodyTemperature) || !r.Byte(out n.LimbFlags))) return false;
                 if ((n.Flags & 64) != 0 && (!r.Float(out n.Rot) || !r.Float(out n.Acid))) return false;
@@ -92,7 +94,7 @@ namespace PPGTogether.BepInEx
                 if (n.Flags == 0) continue;
                 if (n.Layer > 31 || n.ColliderCount > 32 || (n.ColliderCount < 32 && (n.ColliderMask >> n.ColliderCount) != 0)) return false;
                 if (!InRange(n.X, -1000000, 1000000) || !InRange(n.Y, -1000000, 1000000) || !InRange(n.Z, -1000000, 1000000) || !InRange(n.Angle, -360, 360) || !InRange(n.ScaleX, -10000, 10000) || !InRange(n.ScaleY, -10000, 10000) || !InRange(n.ScaleZ, -10000, 10000)) return false;
-                if ((n.Flags & 8) != 0 && (n.SpriteFlags > 7 || !InRange(n.Red, 0, 32) || !InRange(n.Green, 0, 32) || !InRange(n.Blue, 0, 32) || !InRange(n.Alpha, 0, 1))) return false;
+                if ((n.Flags & 8) != 0 && (n.SpriteFlags > 7 || n.SortingOrder < short.MinValue || n.SortingOrder > short.MaxValue || !InRange(n.Red, 0, 32) || !InRange(n.Green, 0, 32) || !InRange(n.Blue, 0, 32) || !InRange(n.Alpha, 0, 1))) return false;
                 if ((n.Flags & 16) != 0 && (n.PhysicalFlags > 1 || !InRange(n.Temperature, -1000000, 1000000000) || !InRange(n.Charge, -1000000000, 1000000000) || !InRange(n.Burn, 0, 1) || !InRange(n.BurnIntensity, 0, 1000000) || !InRange(n.Wetness, 0, 1000000))) return false;
                 if ((n.Flags & 32) != 0 && (n.LimbFlags > 15 || !InRange(n.Health, -1000000000, 1000000000) || !InRange(n.Numbness, 0, 1000000) || !InRange(n.BodyTemperature, -1000000, 1000000000))) return false;
                 if ((n.Flags & 64) != 0 && (!InRange(n.Rot, 0, 1) || !InRange(n.Acid, 0, 1))) return false;
@@ -303,6 +305,20 @@ namespace PPGTogether.BepInEx
             skin = layout.Nodes[index].Skin; return skin != null;
         }
 
+        internal static bool HasCachedSkin(PPGTogetherIdentity identity)
+        {
+            if (!Prime(identity)) return false;
+            foreach (Node node in layouts[identity.NetId].Nodes) if (node.Skin != null) return true;
+            return false;
+        }
+
+        internal static bool TryGetCachedTransform(PPGTogetherIdentity identity, uint hash, ushort index, out Transform transform)
+        {
+            transform = null; Layout layout;
+            if (identity == null || !layouts.TryGetValue(identity.NetId, out layout) || layout.Identity != identity || layout.Hash != hash || index >= layout.Nodes.Length) return false;
+            transform = layout.Nodes[index].Transform; return transform != null;
+        }
+
         internal static void Forget(ulong netId)
         {
             Layout layout;
@@ -358,6 +374,7 @@ namespace PPGTogether.BepInEx
             n.X = Safe(p.x, -1000000, 1000000); n.Y = Safe(p.y, -1000000, 1000000); n.Z = Safe(p.z, -1000000, 1000000); n.Angle = Safe(Mathf.DeltaAngle(0, t.eulerAngles.z), -360, 360);
             n.ScaleX = Safe(s.x, -10000, 10000); n.ScaleY = Safe(s.y, -10000, 10000); n.ScaleZ = Safe(s.z, -10000, 10000);
             if (node.Sprite != null) { Color c = node.Sprite.color; n.Red = Safe(c.r, 0, 32); n.Green = Safe(c.g, 0, 32); n.Blue = Safe(c.b, 0, 32); n.Alpha = Safe(c.a, 0, 1); n.SpriteFlags = (byte)((node.Sprite.enabled ? 1 : 0) | (node.Sprite.flipX ? 2 : 0) | (node.Sprite.flipY ? 4 : 0)); }
+            if (node.Sprite != null) { n.SortingLayerId = node.Sprite.sortingLayerID; n.SortingOrder = node.Sprite.sortingOrder; }
             if (node.Physical != null) { PhysicalBehaviour p2 = node.Physical; n.Temperature = Safe(p2.Temperature, -1000000, 1000000000); n.Charge = Safe(p2.Charge, -1000000000, 1000000000); n.Burn = Safe(p2.BurnProgress, 0, 1); n.BurnIntensity = Safe(p2.BurnIntensity, 0, 1000000); n.Wetness = Safe(p2.Wetness, 0, 1000000); n.Fire = p2.OnFire; n.PhysicalFlags = (byte)(p2.IsWeightless ? 1 : 0); }
             if (node.Limb != null) { LimbBehaviour limb = node.Limb; n.Health = Safe(limb.Health, -1000000000, 1000000000); n.Numbness = Safe(limb.Numbness, 0, 1000000); n.BodyTemperature = Safe(limb.BodyTemperature, -1000000, 1000000000); n.LimbFlags = (byte)((limb.Broken ? 1 : 0) | (limb.Frozen ? 2 : 0) | (limb.IsDismembered ? 4 : 0) | (limb.Joint != null ? 8 : 0)); }
             if (node.Skin != null) { n.Rot = Safe(node.Skin.RottenProgress, 0, 1); n.Acid = Safe(node.Skin.AcidProgress, 0, 1); }
@@ -373,7 +390,11 @@ namespace PPGTogether.BepInEx
             if (chunk.Layout != layout.Hash || chunk.Total != layout.Nodes.Length || chunk.Nodes == null || chunk.Nodes.Length == 0 || chunk.Nodes.Length > ObjectStateCodec.NodesPerChunk || chunk.Offset + chunk.Nodes.Length > layout.Nodes.Length) return false;
             // Validate all local component signatures before any mutation.
             for (int i = 0; i < chunk.Nodes.Length; i++)
-                if (chunk.Nodes[i] == null || ((chunk.Nodes[i].Flags & 1) != 0 && ((chunk.Nodes[i].Flags & 124) != layout.Nodes[chunk.Offset + i].Schema || chunk.Nodes[i].ColliderCount != layout.Nodes[chunk.Offset + i].Colliders.Length))) return false;
+            {
+                ObjectStateNode state = chunk.Nodes[i];
+                if (state == null || ((state.Flags & 1) != 0 && ((state.Flags & 124) != layout.Nodes[chunk.Offset + i].Schema || state.ColliderCount != layout.Nodes[chunk.Offset + i].Colliders.Length))) return false;
+                if ((state.Flags & 8) != 0 && !SortingLayer.IsValid(state.SortingLayerId)) return false;
+            }
             for (int i = 0; i < chunk.Nodes.Length; i++) ApplyNode(layout.Nodes[chunk.Offset + i], chunk.Nodes[i], chunk.Offset + i == 0);
             return true;
         }
@@ -395,6 +416,7 @@ namespace PPGTogether.BepInEx
             t.position = new Vector3(n.X, n.Y, n.Z); t.rotation = Quaternion.Euler(0, 0, n.Angle); t.localScale = new Vector3(n.ScaleX, n.ScaleY, n.ScaleZ);
             if (node.Body != null) { node.Body.bodyType = RigidbodyType2D.Kinematic; node.Body.position = new Vector2(n.X, n.Y); node.Body.rotation = n.Angle; node.Body.velocity = Vector2.zero; node.Body.angularVelocity = 0; }
             if (node.Sprite != null) { node.Sprite.color = new Color(n.Red, n.Green, n.Blue, n.Alpha); node.Sprite.enabled = (n.SpriteFlags & 1) != 0; node.Sprite.flipX = (n.SpriteFlags & 2) != 0; node.Sprite.flipY = (n.SpriteFlags & 4) != 0; }
+            if (node.Sprite != null) { node.Sprite.sortingLayerID = n.SortingLayerId; node.Sprite.sortingOrder = n.SortingOrder; }
             if (node.Physical != null) { PhysicalBehaviour p = node.Physical; p.Temperature = n.Temperature; p.Charge = n.Charge; p.BurnProgress = n.Burn; p.Wetness = n.Wetness; p.IsWeightless = (n.PhysicalFlags & 1) != 0; if (p.OnFire != n.Fire) { if (n.Fire) p.Ignite(true); else p.Extinguish(); } p.BurnIntensity = n.BurnIntensity; }
             if (node.Limb != null) { LimbBehaviour limb = node.Limb; limb.Health = n.Health; limb.Numbness = n.Numbness; limb.BodyTemperature = n.BodyTemperature; limb.Broken = (n.LimbFlags & 1) != 0; limb.Frozen = (n.LimbFlags & 2) != 0; limb.IsDismembered = (n.LimbFlags & 4) != 0; if (limb.Joint != null) limb.Joint.enabled = false; }
             if (node.Skin != null) { node.Skin.RottenProgress = n.Rot; node.Skin.AcidProgress = n.Acid; }

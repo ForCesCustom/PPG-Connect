@@ -1,9 +1,9 @@
-# Known limitations — Connect v0.1.47
+# Known limitations — Connect v0.1.48
 
 - This remains a multiplayer prototype. A successful compile, codec test or
   single-process runtime check does not establish complete two-account Steam
   synchronization. Test representative scenes on both accounts.
-- Every player needs the same complete v0.1.47 package, People Playground
+- Every player needs the same complete v0.1.48 package, People Playground
   1.27.17 build and installed content. There is no Workshop downloading,
   mod-set/content-hash agreement or arbitrary asset transfer.
 - World discovery recognises local catalogue roots, including observed
@@ -26,9 +26,20 @@
   explosions, particles, audio and arbitrary Workshop scripts are not fully
   replicated. Selected health, heat/fire and skin acid/rot values do not
   imply every injury effect is identical.
-- Host wire rendering is bounded to **128 lines**, with bounded points per
-  line. Guest wire creation and electrical/joint simulation are not supported.
+- Host wire rendering is bounded to **1000 lines**, with up to 16 points per
+  line and 128 lines per packet. Discovery is cached for 0.5 seconds; large
+  revisions span bounded ticks (about 0.8s at the maximum point count). A lost
+  page preserves the old complete view until a complete new revision arrives.
+  Beyond 1000 visible lines the last complete view is retained with a warning.
+  Guest wire creation and electrical/joint simulation are not supported.
   Rendered lines are a view of host wiring, not independent guest mechanisms.
+- Device presentation covers only catalogue-authored LightSprite brightness
+  and SingleFloodlight activation; it is not universal device serialization.
+  Lights created dynamically by scripts are outside the authored-node schema.
+  Sprite sorting order/layer now follows the host; custom sprite/texture assets
+  still require matching installed content and are not transferred.
+- Optimizations reduce repeated capture/list work and obsolete queued states.
+  A local float-writer benchmark is not a whole-game FPS or two-PC relay test.
 - Guest context actions implemented through the host are Activate/Delete,
   Freeze, No Collide, Weightless and Ignite. Copy/Save/Follow stay local.
   Paste/Load, resize/layer/amalgamation and arbitrary dynamic mod actions remain

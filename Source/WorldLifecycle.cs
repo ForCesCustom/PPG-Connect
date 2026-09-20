@@ -85,9 +85,7 @@ namespace PPGTogether.BepInEx
                 nextLifecycleScanAt = now + 1f;
                 ReconcileLocalCatalogObjects();
             }
-            if (!IsHost || worldEpoch == 0) return;
-            foreach (PPGTogetherIdentity identity in registry.All())
-                if (identity != null) RecordLifecycleNetId(identity.NetId);
+            if (!IsHost || worldEpoch == 0 || !HasSnapshotRecipients()) return;
             foreach (Peer peer in peers.Values)
             {
                 if (!LifecyclePeerReady(peer)) continue;
@@ -111,8 +109,8 @@ namespace PPGTogether.BepInEx
             if (now < nextManifestAt) return;
             nextManifestAt = now + 2f;
             List<ulong> ids = new List<ulong>();
-            foreach (PPGTogetherIdentity identity in registry.All())
-                if (identity != null && identity.NetId != 0) ids.Add(identity.NetId);
+            foreach (PPGTogetherIdentity identity in GetReplicationRoots())
+                if (identity != null && identity.NetId != 0) { ids.Add(identity.NetId); RecordLifecycleNetId(identity.NetId); }
             // A partial manifest must never delete the omitted tail of a world.
             if (ids.Count > WorldManifestProtocol.MaximumRoots) return;
             byte[] payload = WorldManifestProtocol.Encode(worldEpoch, lifecycleHighWater, ids);

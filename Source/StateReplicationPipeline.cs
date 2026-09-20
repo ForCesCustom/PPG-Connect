@@ -12,25 +12,67 @@ namespace PPGTogether.BepInEx
         private readonly Dictionary<ulong, Dictionary<ushort, uint>> woundTicks = new Dictionary<ulong, Dictionary<ushort, uint>>();
         private int woundRootCursor;
         private float nextWoundsAt;
+        private readonly List<PPGTogetherIdentity> replicationRoots = new List<PPGTogetherIdentity>();
+        private uint replicationRootsRevision;
+        private bool replicationRootsValid;
+        private readonly List<PPGTogetherIdentity> woundRoots = new List<PPGTogetherIdentity>();
+        private uint woundRootsRevision;
+        private bool woundRootsValid;
+
+        private bool HasSnapshotRecipients()
+        {
+            foreach (Peer peer in peers.Values)
+                if (peer != null && peer.Connection != null && peer.MapStatus == PeerMapStatus.Playing &&
+                    string.Equals(peer.MapIdentity, activeMapIdentity, System.StringComparison.Ordinal)) return true;
+            return false;
+        }
+
+        private List<PPGTogetherIdentity> GetReplicationRoots()
+        {
+            if (!replicationRootsValid || replicationRootsRevision != registry.Revision)
+            {
+                registry.CopyTo(replicationRoots);
+                replicationRoots.Sort(delegate(PPGTogetherIdentity a, PPGTogetherIdentity b) { return a.NetId.CompareTo(b.NetId); });
+                replicationRootsRevision = registry.Revision;
+                replicationRootsValid = true;
+            }
+            return replicationRoots;
+        }
+
+        private List<PPGTogetherIdentity> GetWoundRoots()
+        {
+            List<PPGTogetherIdentity> roots = GetReplicationRoots();
+            if (!woundRootsValid || woundRootsRevision != registry.Revision)
+            {
+                woundRoots.Clear();
+                foreach (PPGTogetherIdentity root in roots)
+                    if (root != null && ReplicatedObjectState.HasCachedSkin(root)) woundRoots.Add(root);
+                woundRootsRevision = registry.Revision;
+                woundRootsValid = true;
+            }
+            return woundRoots;
+        }
 
         private void PumpWoundStates()
         {
             if (!IsHost || !sessionActive || Time.unscaledTime < nextWoundsAt) return;
             nextWoundsAt = Time.unscaledTime + .2f;
-            List<PPGTogetherIdentity> roots = new List<PPGTogetherIdentity>(registry.All());
-            roots.Sort(delegate(PPGTogetherIdentity a, PPGTogetherIdentity b) { return a.NetId.CompareTo(b.NetId); });
+            if (!HasSnapshotRecipients()) { pendingWounds.Clear(); return; }
+            List<PPGTogetherIdentity> roots = GetWoundRoots();
             int captured = 0, sent = 0, bytes = 0;
             while (sent < 24 && bytes < 48000)
             {
                 if (pendingWounds.Count == 0)
                 {
-                    if (roots.Count == 0 || captured >= roots.Count) break;
+                    if (roots.Count == 0 || captured >= Mathf.Min(24, roots.Count)) break;
                     woundRootCursor %= roots.Count;
                     foreach (byte[] payload in ReplicatedWoundState.Capture(roots[woundRootCursor++])) pendingWounds.Enqueue(payload);
                     captured++;
                     if (pendingWounds.Count == 0) continue;
                 }
-                byte[] packet = pendingWounds.Dequeue();
+                byte[] packet = pendingWounds.Peek();
+                if (sent > 0 && bytes + packet.Length > 48000) break;
+                pendingWounds.Dequeue();
                 Broadcast(WireMessage.WoundState, WireChannel.Snapshot, packet, false);
                 sent++; bytes += packet.Length;
             }
@@ -50,8 +92,8 @@ namespace PPGTogether.BepInEx
 
         private void BroadcastObjectStates()
         {
-            List<PPGTogetherIdentity> roots = new List<PPGTogetherIdentity>(registry.All());
-            roots.Sort(delegate(PPGTogetherIdentity a, PPGTogetherIdentity b) { return a.NetId.CompareTo(b.NetId); });
+            if (!HasSnapshotRecipients()) { pendingObjectChunks.Clear(); return; }
+            List<PPGTogetherIdentity> roots = GetReplicationRoots();
             int rootsCaptured = 0, chunksSent = 0, bytesSent = 0;
             // Resume a large root next tick; never restart a partial batch and starve
             // its later limbs. Other roots get a turn once this batch is drained.
@@ -67,7 +109,9 @@ namespace PPGTogether.BepInEx
                     foreach (byte[] chunk in ReplicatedObjectState.Capture(root)) pendingObjectChunks.Enqueue(chunk);
                     if (pendingObjectChunks.Count == 0) continue;
                 }
-                byte[] payload = pendingObjectChunks.Dequeue();
+                byte[] payload = pendingObjectChunks.Peek();
+                if (chunksSent > 0 && bytesSent + payload.Length > 48000) break;
+                pendingObjectChunks.Dequeue();
                 Broadcast(WireMessage.ObjectState, WireChannel.Snapshot, payload, false);
                 chunksSent++; bytesSent += payload.Length;
             }
@@ -95,6 +139,9 @@ namespace PPGTogether.BepInEx
             pendingObjectChunks.Clear(); objectStateTicks.Clear(); mismatchedLayouts.Clear();
             pendingWounds.Clear(); woundTicks.Clear(); woundRootCursor = 0; nextWoundsAt = 0;
             ReplicatedObjectState.Clear(); snapshotRootCursor = 0;
+            replicationRoots.Clear(); replicationRootsValid = false;
+            woundRoots.Clear(); woundRootsValid = false;
+            ResetDeviceReplication();
             ResetSharedWorld();
         }
 

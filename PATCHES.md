@@ -1,4 +1,4 @@
-# Patches — Connect v0.1.47
+# Patches — Connect v0.1.48
 
 Targets are based on People Playground 1.27.17, Unity 2020.3.1f1.
 These are gameplay Harmony hooks, not changes to the game's executable or
@@ -54,6 +54,11 @@ components indexed as Connect guest replicas, so those replicas display host
 state instead of independently simulating the same actors. Consult
 `ReplicatedObjectState.cs` for the concrete supported component/method list.
 Host and ordinary local objects are outside that replica set.
+
+Protocol 10 also carries sprite sorting and a closed device presentation
+record. These use cached authored components, not new arbitrary device patches.
+Native removal releases state/device caches immediately; it no longer relies
+on OnDestroy finding an entry already removed from the registry.
 
 World lifecycle uses durable hooks on the game's spawn/remove invocations and a Connect identity
 destruction callback. Periodic discovery uses local catalogue keys and excludes

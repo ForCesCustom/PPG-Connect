@@ -173,6 +173,7 @@ public sealed class HostSpawnRegressionRuntime : BaseUnityPlugin
             Check(RegistryCount(registry) == before + 1, "no delayed duplicate identity");
             typeof(ModAPI).GetMethod("InvokeItemRemoved", Flags).Invoke(null, new object[] { CatalogBehaviour.Main, args });
             Check(RegistryCount(registry) == before, "durable native removal observer");
+            Check(!(bool)stateType.GetMethod("TryGetCachedLayout", Flags).Invoke(null, layout), "native removal releases cached object layout");
             instance.SetActive(false);
             Destroy(instance);
             yield return null;
